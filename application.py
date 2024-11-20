@@ -488,6 +488,14 @@ def apply_dynamic_text_overlay(video_path, dynamic_text_params, output_path):
         raise
 
 
+@application.route('/health', methods=['GET'])
+def health_check():
+    return "GOOD"
+
+@application.route('/')
+def default_route():
+    return '<html><body><b>Hi!</b></body></html>'
+
 if __name__ == '__main__':
     if not os.path.exists('static/videos'):
         os.makedirs('static/videos')  
