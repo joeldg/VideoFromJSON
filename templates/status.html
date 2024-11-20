@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Check Video Status</title>
+</head>
+<body>
+    {% extends "base.html" %}
+
+    {% block title %}Check Video Status{% endblock %}
+
+    {% block content %}
+    <h1>Check Video Status</h1>
+    <form action="/api/status" method="get">
+        <label for="video_id">Video ID:</label>
+        <input type="text" id="video_id" name="video_id"><br>
+        <label for="api_key">API Key:</label>
+        <input type="text" id="api_key" name="api_key"><br>
+        <button type="submit">Check Status</button>
+    </form>
+    <p>This endpoint checks the status of a video by its ID.</p>
+    {% endblock %}
+</body>
+</html>

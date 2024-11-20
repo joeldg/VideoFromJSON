@@ -511,30 +511,37 @@ def apply_dynamic_text_overlay(video_path, dynamic_text_params, output_path):
 
 @application.route('/web')
 def web_index():
+    logger.debug('Rendering index.html')
     return render_template('index.html')
 
 @application.route('/web/upload_image')
 def web_upload_image():
+    logger.debug('Rendering upload_image.html')
     return render_template('upload_image.html')
 
 @application.route('/web/creation')
 def web_creation():
+    logger.debug('Rendering creation.html')
     return render_template('creation.html')
 
 @application.route('/web/status')
 def web_status():
+    logger.debug('Rendering status.html')
     return render_template('status.html')
 
 @application.route('/web/videos')
 def web_videos():
+    logger.debug('Rendering videos.html')
     return render_template('videos.html')
 
 @application.route('/web/pre_roll')
 def web_pre_roll():
+    logger.debug('Rendering pre_roll.html')
     return render_template('pre_roll.html')
 
 @application.route('/web/post_roll')
 def web_post_roll():
+    logger.debug('Rendering post_roll.html')
     return render_template('post_roll.html')
 
 

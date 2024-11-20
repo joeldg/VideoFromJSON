@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+
+{% block title %}Upload Post-roll Video{% endblock %}
+
+{% block content %}
+<h1>Upload Post-roll Video</h1>
+<form action="/api/post_roll" method="post" enctype="multipart/form-data">
+    <label for="file">Choose a video:</label>
+    <input type="file" id="file" name="file"><br>
+    <label for="api_key">API Key:</label>
+    <input type="text" id="api_key" name="api_key"><br>
+    <button type="submit">Upload</button>
+</form>
+<p>This endpoint uploads a post-roll video.</p>
+{% endblock %}

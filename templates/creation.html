@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Create Video</title>
+</head>
+<body>
+    {% extends "base.html" %}
+
+    {% block title %}Create Video{% endblock %}
+
+    {% block content %}
+    <h1>Create Video</h1>
+    <form action="/api/creation" method="post">
+        <label for="segments">Segments (JSON):</label>
+        <textarea id="segments" name="segments" rows="10" cols="50">[{"imageUrl": "https://picsum.photos/800/600?random=1", "audioUrl": "https://downloads.tuxfamily.org/pdsounds/sounds/076No%20Title-.mp3"}]</textarea><br>
+        <label for="api_key">API Key:</label>
+        <input type="text" id="api_key" name="api_key"><br>
+        <button type="submit">Create</button>
+    </form>
+    <p>This endpoint creates a video from the provided segments.</p>
+    {% endblock %}
+</body>
+</html>
