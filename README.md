@@ -511,6 +511,38 @@ Modify the `application.py` file to configure the API key and webhook URLs:
   }
   ```
 
+## Web Interface Endpoints
+
+The `/web` endpoints provide a user-friendly web interface to interact with the API functionalities.
+
+- **Home Page**
+  - **URL:** `/web`
+  - **Description:** Displays links to all available API test pages.
+
+- **Upload Image**
+  - **URL:** `/web/upload_image`
+  - **Description:** Provides a form to upload an image to a specified directory.
+
+- **Create Video**
+  - **URL:** `/web/creation`
+  - **Description:** Allows users to create a video from provided segments using a JSON configuration.
+
+- **Check Video Status**
+  - **URL:** `/web/status`
+  - **Description:** Enables users to check the processing status of a video by entering its Video ID.
+
+- **List Videos**
+  - **URL:** `/web/videos`
+  - **Description:** Lists all videos available in the `static/videos` directory.
+
+- **Upload Pre-roll Video**
+  - **URL:** `/web/pre_roll`
+  - **Description:** Provides a form to upload a pre-roll video segment.
+
+- **Upload Post-roll Video**
+  - **URL:** `/web/post_roll`
+  - **Description:** Provides a form to upload a post-roll video segment.
+
 ## Notes
 
 - Ensure that the API key is included in the request headers for endpoints that require it.
