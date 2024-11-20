@@ -449,6 +449,50 @@ class APITestCase(unittest.TestCase):
         self.assertIn('Post-roll video uploaded', str(response.data))
         logger.info('test_upload_post_roll passed')
 
+    def test_upload_image(self):
+        logger.info('Starting test_upload_image')
+        directory = 'testdir123'
+        data = {
+            'file': (io.BytesIO(b'my image contents'), 'test_image.png')
+        }
+        response = self.application.post(f'/api/upload_image/{directory}', content_type='multipart/form-data', data=data)
+        logger.debug(f'Received response: {response.data}')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('Image uploaded', str(response.data))
+        logger.info('test_upload_image passed')
+
+    def test_upload_image_invalid_directory(self):
+        logger.info('Starting test_upload_image_invalid_directory')
+        directory = 'invalid_dir!'
+        data = {
+            'file': (io.BytesIO(b'my image contents'), 'test_image.png')
+        }
+        response = self.application.post(f'/api/upload_image/{directory}', content_type='multipart/form-data', data=data)
+        logger.debug(f'Received response: {response.data}')
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('Invalid directory name', str(response.data))
+        logger.info('test_upload_image_invalid_directory passed')
+
+    @patch('requests.post')
+    def test_create_video_with_local_files(self, mock_post):
+        logger.info('Starting test_create_video_with_local_files')
+        segments = []
+        for i in range(3):
+            segments.append({
+                "imageUrl": f"uploads/testdir123/test_image_{i}.png",
+                "audioUrl": f"uploads/testdir123/test_audio_{i}.mp3"
+            })
+        data = {
+            "segments": segments,
+            "use_local_files": True
+        }
+        logger.debug(f'Sending request with data: {data}')
+        response = self.application.post('/api/creation', json=data, headers={'X-API-Key': self.api_key})
+        logger.debug(f'Received response: {response.data}')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('Processing started', str(response.data))
+        logger.info('test_create_video_with_local_files passed')
+
 
 if __name__ == '__main__':
     logger.info('Starting tests')
