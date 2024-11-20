@@ -1,8 +1,10 @@
 ### README.md
 
-# Video Flask App
+# VideoFromJson
 
 This is a Flask application that allows you to create videos from a series of image and audio segments. The application supports various features such as zooming, panning, fade effects, audiograms, watermarks, background music, audio volume adjustments, video resolution, and thumbnail generation.
+
+This was almost entirely written by ChatGPT's o1-preview using some well crafted prompts.
 
 ## Table of Contents
 - [Features](#features)

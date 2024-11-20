@@ -1,5 +1,5 @@
 # app.py
-from flask import Flask, request, jsonify, send_from_directory, abort
+from flask import Flask, request, jsonify, send_from_directory, abort, render_template  # Added for rendering templates
 import os
 import requests
 import subprocess
@@ -56,8 +56,19 @@ def allowed_api_key(key):
 def is_valid_directory_name(name):
     return re.match(r'^[a-z0-9]+$', name) is not None
 
+def get_api_key():
+    api_key = request.headers.get('X-API-Key')
+    if not api_key:
+        api_key = request.form.get('api_key')
+    return api_key
+
 @application.route('/api/upload_image/<directory>', methods=['POST'])
 def upload_image(directory):
+    api_key = get_api_key()
+    if not allowed_api_key(api_key):
+        logger.warning('Unauthorized access attempt')
+        return jsonify({'error': 'Unauthorized'}), 401
+
     if not is_valid_directory_name(directory):
         return jsonify({'error': 'Invalid directory name'}), 400
 
@@ -75,7 +86,7 @@ def upload_image(directory):
 
 @application.route('/api/creation', methods=['POST'])
 def create_video():
-    api_key = request.headers.get('X-API-Key')
+    api_key = get_api_key()
     if not allowed_api_key(api_key):
         logger.warning('Unauthorized access attempt')
         return jsonify({'error': 'Unauthorized'}), 401
@@ -163,6 +174,11 @@ def delete_video(video_id):
 
 @application.route('/api/pre_roll', methods=['POST'])
 def upload_pre_roll():
+    api_key = get_api_key()
+    if not allowed_api_key(api_key):
+        logger.warning('Unauthorized access attempt')
+        return jsonify({'error': 'Unauthorized'}), 401
+
     if 'file' not in request.files:
         return jsonify({'error': 'No file part'}), 400
     file = request.files['file']
@@ -175,6 +191,11 @@ def upload_pre_roll():
 
 @application.route('/api/post_roll', methods=['POST'])
 def upload_post_roll():
+    api_key = get_api_key()
+    if not allowed_api_key(api_key):
+        logger.warning('Unauthorized access attempt')
+        return jsonify({'error': 'Unauthorized'}), 401
+
     if 'file' not in request.files:
         return jsonify({'error': 'No file part'}), 400
     file = request.files['file']
@@ -486,6 +507,35 @@ def apply_dynamic_text_overlay(video_path, dynamic_text_params, output_path):
     except subprocess.CalledProcessError as e:
         logger.error(f'ffmpeg error during dynamic text overlay: {e}')
         raise
+
+
+@application.route('/web')
+def web_index():
+    return render_template('index.html')
+
+@application.route('/web/upload_image')
+def web_upload_image():
+    return render_template('upload_image.html')
+
+@application.route('/web/creation')
+def web_creation():
+    return render_template('creation.html')
+
+@application.route('/web/status')
+def web_status():
+    return render_template('status.html')
+
+@application.route('/web/videos')
+def web_videos():
+    return render_template('videos.html')
+
+@application.route('/web/pre_roll')
+def web_pre_roll():
+    return render_template('pre_roll.html')
+
+@application.route('/web/post_roll')
+def web_post_roll():
+    return render_template('post_roll.html')
 
 
 @application.route('/health', methods=['GET'])
