@@ -18,7 +18,7 @@ application = Flask(__name__)
 dotenv.load_dotenv()
 
 # Configuration
-API_KEY = os.getenv('API_KEY', '25c05693-b83c-4f0b-b0fb-c0d1a17dd5c2')
+API_KEY = os.getenv('API_KEY', '{INSERT API KEY HERE}}')
 SUCCESS_WEBHOOK_URL = 'https://hook.us1.make.com/31yc9urbo92ui6og29em8f5be9rfuj5b'
 ERROR_WEBHOOK_URL = 'https://hook.us1.make.com/31yc9urbo92ui6og29em8f5be9rfuj5b'
 LOG_LEVEL = logging.DEBUG
