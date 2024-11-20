@@ -1,0 +1,10 @@
+# Elastic Beanstalk Files
+.elasticbeanstalk/*
+!.elasticbeanstalk/*.cfg.yml
+!.elasticbeanstalk/*.global.yml
+.env
+static
+temp
+bkup
+uploads
+__pycache__
