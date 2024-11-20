@@ -8,7 +8,7 @@ This was almost entirely written by ChatGPT's o1-preview using some well crafted
 
 This has several more features than a web service that costs $99+/month, ties in easily with Make(dot)com workflows and automates multiple issues I had.
 
-ALl the following was written by the AI designer that generated this fully working app over a fairly epic prompting run.
+All the following was written by the AI designer that generated this fully working app over a fairly epic prompting run.
 
 ## Table of Contents
 - [Features](#features)
