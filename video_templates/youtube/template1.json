@@ -1,0 +1,22 @@
+{
+  "resolution": "1920x1080",
+  "zoom_pan": false,
+  "fade_effect": "fade",
+  "audiogram": {
+    "size": "small",
+    "color": "cyan",
+    "position": "bottom"
+  },
+  "watermark": {
+    "text": "My YouTube Channel",
+    "opacity": 0.5,
+    "position": "top-right"
+  },
+  "background_music": "default_bg_music.mp3",
+  "thumbnail": true,
+  "audio_enhancement": {
+    "equalization": "bass"
+  },
+  "filter_chain": ["vintage"],
+  "use_local_files": false
+}

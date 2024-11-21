@@ -1,0 +1,48 @@
+{
+    "resolution": "1080x1920",
+    "duration_limit": 60,
+    "segments": [
+      {
+        "imageUrl": "https://example.com/image1.png",
+        "audioUrl": "https://example.com/audio1.mp3",
+        "volume": 1.0,
+        "text": "Watch till the end!",
+        "filter": "none"
+      },
+      {
+        "imageUrl": "https://example.com/image2.png",
+        "audioUrl": "https://example.com/audio2.mp3",
+        "volume": 1.0,
+        "text": "Follow for more!",
+        "filter": "none"
+      }
+    ],
+    "zoom_pan": true,
+    "fade_effect": "circleopen",
+    "audiogram": {
+      "size": "large",
+      "color": "cyan",
+      "position": "center"
+    },
+    "watermark": {
+      "text": "@YourTikTokHandle",
+      "position": "bottom-right",
+      "opacity": 0.7
+    },
+    "background_music": "path/to/default/background_music.mp3",
+    "thumbnail": false,
+    "audio_enhancement": {
+      "equalization": "bass",
+      "noise_reduction": "moderate"
+    },
+    "dynamic_text": {
+      "text": "Follow for more!",
+      "position": "w/2:h/2",
+      "font_size": 48,
+      "color": "yellow",
+      "start_time": 5,
+      "end_time": 10
+    },
+    "filter_chain": ["glitch", "vignette"],
+    "use_local_files": false
+  }

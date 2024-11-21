@@ -1,0 +1,23 @@
+
+{
+    "resolution": "1080x1080",
+    "zoom_pan": true,
+    "fade_effect": "slideleft",
+    "audiogram": {
+        "size": "medium",
+        "color": "magenta",
+        "position": "bottom"
+    },
+    "watermark": {
+        "text": "@myinstagram",
+        "opacity": 0.7,
+        "position": "bottom-left"
+    },
+    "background_music": "insta_bg_music.mp3",
+    "thumbnail": true,
+    "audio_enhancement": {
+        "noise_reduction": "moderate"
+    },
+    "filter_chain": ["grayscale", "vignette"],
+    "use_local_files": false
+}

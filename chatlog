@@ -1,0 +1,2215 @@
+jgan_LinkedIn: In this empty directory I would like to create the following:
+A python API server with one endpoint, protected by an API key, named “/api/creation” the endpoint takes a JSON string that looks like this:
+
+{  "body": "{\"segments\": [{\"imageUrl\": \"https://picsum.photos/800/600?random=1\", \"audioUrl\": \"https://downloads.tuxfamily.org/pdsounds/sounds/076No%20Title-.mp3\"}, {\"imageUrl\": \"https://picsum.photos/800/600?random=2\", \"audioUrl\": \"https://downloads.tuxfamily.org/pdsounds/sounds/072No%20Title-.mp3\"}]}"}
+
+I want to be able to have any number of segments in the JSON string up to 20, any over 20 and it will error.
+The endpoint will download the image and audio from each segment, it will use FFMPEG and FFPROBE to determine the length of the audio file and display each image for the length of time of the audio and fade between the images over a period of two seconds. The audio file for each segment will play while the image is shown.
+Initially the API will return a success on accepting the segments and will trigger webhooks on errors or success The webhooks will be for make.com and will be configurable within the application. The webhook for errors will return the errors and the webhook for success will return a link to the finished file on the same server the api is located on. 
+The API will have configurable logging with standard types of INFO, WARN, ERROR and CRITICAL.
+Once the final video is created we will remove the downloaded files.
+We also want a full test suite to test with that includes randomly 3-6 segments with publicly available audio files that are less than 50k and PNG images used for testing.
+
+GitHub Copilot: ```python
+# app.py
+from flask import Flask, request, jsonify, send_from_directory
+import os
+import requests
+import subprocess
+import uuid
+import threading
+import logging
+
+app = Flask(__name__)
+
+# Configuration
+API_KEY = 'your_api_key'
+SUCCESS_WEBHOOK_URL = 'https://hook.make.com/success_webhook'
+ERROR_WEBHOOK_URL = 'https://hook.make.com/error_webhook'
+LOG_LEVEL = logging.INFO
+
+logging.basicConfig(level=LOG_LEVEL)
+
+def allowed_api_key(key):
+    return key == API_KEY
+
+@app.route('/api/creation', methods=['POST'])
+def create_video():
+    api_key = request.headers.get('X-API-Key')
+    if not allowed_api_key(api_key):
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    data = request.get_json()
+    try:
+        body = data.get('body')
+        segments = eval(body).get('segments')
+    except Exception as e:
+        return jsonify({'error': 'Invalid JSON format'}), 400
+
+    if not segments or len(segments) > 20:
+        return jsonify({'error': 'Number of segments must be between 1 and 20'}), 400
+
+    video_id = str(uuid.uuid4())
+    thread = threading.Thread(target=process_video, args=(video_id, segments))
+    thread.start()
+
+    return jsonify({'status': 'Processing started', 'video_id': video_id}), 200
+
+def process_video(video_id, segments):
+    try:
+        os.makedirs(f'temp/{video_id}')
+        image_files = []
+        audio_files = []
+        durations = []
+
+        # Download files and get durations
+        for index, segment in enumerate(segments):
+            image_url = segment['imageUrl']
+            audio_url = segment['audioUrl']
+
+            image_path = f'temp/{video_id}/image_{index}.png'
+            audio_path = f'temp/{video_id}/audio_{index}.mp3'
+
+            download_file(image_url, image_path)
+            download_file(audio_url, audio_path)
+
+            duration = get_audio_duration(audio_path)
+            durations.append(duration)
+            image_files.append(image_path)
+            audio_files.append(audio_path)
+
+        # Create video
+        video_path = f'static/videos/{video_id}.mp4'
+        create_video_from_segments(image_files, audio_files, durations, video_path)
+
+        # Trigger success webhook
+        requests.post(SUCCESS_WEBHOOK_URL, json={'video_url': f'/videos/{video_id}.mp4'})
+    except Exception as e:
+        logging.error(e)
+        # Trigger error webhook
+        requests.post(ERROR_WEBHOOK_URL, json={'error': str(e)})
+    finally:
+        # Clean up
+        remove_temp_files(f'temp/{video_id}')
+
+def download_file(url, path):
+    response = requests.get(url)
+    with open(path, 'wb') as f:
+        f.write(response.content)
+
+def get_audio_duration(path):
+    result = subprocess.run(['ffprobe', '-i', path, '-show_entries', 'format=duration',
+                             '-v', 'quiet', '-of', 'csv=p=0'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return float(result.stdout)
+
+def create_video_from_segments(images, audios, durations, output_path):
+    with open('temp/input.txt', 'w') as f:
+        for i, (image, duration) in enumerate(zip(images, durations)):
+            f.write(f"file '{image}'\nduration {duration}\n")
+    # Add last image to prevent ffmpeg dropping it
+    f.write(f"file '{images[-1]}'\n")
+    # Create video
+    subprocess.run([
+        'ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', 'temp/input.txt',
+        '-vf', 'fade=t=out:st=0:d=2', '-pix_fmt', 'yuv420p', 'temp/temp_video.mp4'
+    ])
+    # Merge audio
+    merge_audio_files(audios, 'temp/merged_audio.mp3')
+    subprocess.run([
+        'ffmpeg', '-y', '-i', 'temp/temp_video.mp4', '-i', 'temp/merged_audio.mp3',
+        '-c:v', 'copy', '-c:a', 'aac', output_path
+    ])
+
+def merge_audio_files(audio_files, output_path):
+    with open('temp/audio_list.txt', 'w') as f:
+        for audio in audio_files:
+            f.write(f"file '{audio}'\n")
+    subprocess.run([
+        'ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', 'temp/audio_list.txt',
+        '-c', 'copy', output_path
+    ])
+
+def remove_temp_files(path):
+    subprocess.run(['rm', '-rf', path])
+
+if __name__ == '__main__':
+    if not os.path.exists('static/videos'):
+        os.makedirs('static/videos')
+    app.run(host='0.0.0.0', port=5000)
+```
+
+```python
+# test_app.py
+import unittest
+import json
+from app import app
+
+class APITestCase(unittest.TestCase):
+    def setUp(self):
+        self.app = app.test_client()
+        self.api_key = 'your_api_key'
+
+    def test_create_video(self):
+        segments = []
+        for i in range(3):
+            segments.append({
+                "imageUrl": f"https://picsum.photos/800/600?random={i}",
+                "audioUrl": "https://file-examples.com/wp-content/uploads/2017/11/file_example_MP3_700KB.mp3"
+            })
+        data = {
+            "body": str({"segments": segments})
+        }
+        response = self.app.post('/api/creation', json=data, headers={'X-API-Key': self.api_key})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('Processing started', str(response.data))
+
+    def test_exceed_segment_limit(self):
+        segments = []
+        for i in range(21):
+            segments.append({
+                "imageUrl": f"https://picsum.photos/800/600?random={i}",
+                "audioUrl": "https://file-examples.com/wp-content/uploads/2017/11/file_example_MP3_700KB.mp3"
+            })
+        data = {
+            "body": str({"segments": segments})
+        }
+        response = self.app.post('/api/creation', json=data, headers={'X-API-Key': self.api_key})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('Number of segments must be between 1 and 20', str(response.data))
+
+if __name__ == '__main__':
+    unittest.main()
+```
+
+jgan_LinkedIn: how do I run this with flask
+
+GitHub Copilot: To run the Flask application, follow these steps:
+
+1. **Install Flask and other dependencies**:
+   Make sure you have Flask and other required packages installed. You can install them using pip:
+   ```sh
+   pip install Flask requests
+   ```
+
+2. **Save the code**:
+   Ensure your 
+
+app.py
+
+ file contains the complete code for the Flask application.
+
+3. **Run the Flask application**:
+   You can run the Flask application using the following command:
+   ```sh
+   flask run
+   ```
+   Make sure you are in the directory where 
+
+app.py
+
+ is located. If your file is named differently, set the `FLASK_APP` environment variable:
+   ```sh
+   export FLASK_APP=app.py
+   flask run
+   ```
+
+4. **Access the API**:
+   By default, Flask runs on `http://127.0.0.1:5000/`. You can access your API endpoint at `http://127.0.0.1:5000/api/creation`.
+
+If you want to run the Flask application on a different host or port, you can specify them like this:
+```sh
+flask run --host=0.0.0.0 --port=5000
+```
+
+This will make the application accessible on all network interfaces on port 5000.
+
+jgan_LinkedIn: Error: Failed to find Flask application or factory in module 'app'. Use 'app:name' to specify one.
+
+GitHub Copilot: This error occurs because Flask cannot find the application instance. To fix this, ensure that your 
+
+app.py
+
+ file has the following structure:
+
+1. **Ensure the Flask app instance is named `app`**:
+   Make sure you have the Flask app instance created and named `app`:
+   ```python
+   from flask import Flask
+
+   app = Flask(__name__)
+
+   # Your existing code here
+   ```
+
+2. **Set the `FLASK_APP` environment variable**:
+   If your file is named 
+
+app.py
+
+, you can set the `FLASK_APP` environment variable to `app`:
+   ```sh
+   export FLASK_APP=app
+   flask run
+   ```
+
+3. **Complete 
+
+app.py
+
+ example**:
+   Here is a complete example of how your 
+
+app.py
+
+ should look:
+   ```python
+   from flask import Flask, request, jsonify
+   import os
+   import requests
+   import subprocess
+   import uuid
+   import threading
+   import logging
+
+   app = Flask(__name__)
+
+   # Configuration
+   API_KEY = 'your_api_key'
+   SUCCESS_WEBHOOK_URL = 'https://hook.make.com/success_webhook'
+   ERROR_WEBHOOK_URL = 'https://hook.make.com/error_webhook'
+   LOG_LEVEL = logging.INFO
+
+   logging.basicConfig(level=LOG_LEVEL)
+
+   def allowed_api_key(key):
+       return key == API_KEY
+
+   @app.route('/api/creation', methods=['POST'])
+   def create_video():
+       api_key = request.headers.get('X-API-Key')
+       if not allowed_api_key(api_key):
+           return jsonify({'error': 'Unauthorized'}), 401
+
+       data = request.get_json()
+       try:
+           body = data.get('body')
+           segments = eval(body).get('segments')
+       except Exception as e:
+           return jsonify({'error': 'Invalid JSON format'}), 400
+
+       if not segments or len(segments) > 20:
+           return jsonify({'error': 'Number of segments must be between 1 and 20'}), 400
+
+       video_id = str(uuid.uuid4())
+       thread = threading.Thread(target=process_video, args=(video_id, segments))
+       thread.start()
+
+       return jsonify({'status': 'Processing started', 'video_id': video_id}), 200
+
+   def process_video(video_id, segments):
+       try:
+           os.makedirs(f'temp/{video_id}')
+           image_files = []
+           audio_files = []
+           durations = []
+
+           # Download files and get durations
+           for index, segment in enumerate(segments):
+               image_url = segment['imageUrl']
+               audio_url = segment['audioUrl']
+
+               image_path = f'temp/{video_id}/image_{index}.png'
+               audio_path = f'temp/{video_id}/audio_{index}.mp3'
+
+               download_file(image_url, image_path)
+               download_file(audio_url, audio_path)
+
+               duration = get_audio_duration(audio_path)
+               durations.append(duration)
+               image_files.append(image_path)
+               audio_files.append(audio_path)
+
+           # Create video
+           video_path = f'static/videos/{video_id}.mp4'
+           create_video_from_segments(image_files, audio_files, durations, video_path)
+
+           # Trigger success webhook
+           requests.post(SUCCESS_WEBHOOK_URL, json={'video_url': f'/videos/{video_id}.mp4'})
+       except Exception as e:
+           logging.error(e)
+           # Trigger error webhook
+           requests.post(ERROR_WEBHOOK_URL, json={'error': str(e)})
+       finally:
+           # Clean up
+           remove_temp_files(f'temp/{video_id}')
+
+   def download_file(url, path):
+       response = requests.get(url)
+       with open(path, 'wb') as f:
+           f.write(response.content)
+
+   def get_audio_duration(path):
+       result = subprocess.run(['ffprobe', '-i', path, '-show_entries', 'format=duration',
+                                '-v', 'quiet', '-of', 'csv=p=0'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+       return float(result.stdout)
+
+   def create_video_from_segments(images, audios, durations, output_path):
+       with open('temp/input.txt', 'w') as f:
+           for i, (image, duration) in enumerate(zip(images, durations)):
+               f.write(f"file '{image}'\nduration {duration}\n")
+       # Add last image to prevent ffmpeg dropping it
+       f.write(f"file '{images[-1]}'\n")
+       # Create video
+       subprocess.run([
+           'ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', 'temp/input.txt',
+           '-vf', 'fade=t=out:st=0:d=2', '-pix_fmt', 'yuv420p', 'temp/temp_video.mp4'
+       ])
+       # Merge audio
+       merge_audio_files(audios, 'temp/merged_audio.mp3')
+       subprocess.run([
+           'ffmpeg', '-y', '-i', 'temp/temp_video.mp4', '-i', 'temp/merged_audio.mp3',
+           '-c:v', 'copy', '-c:a', 'aac', output_path
+       ])
+
+   def merge_audio_files(audio_files, output_path):
+       with open('temp/audio_list.txt', 'w') as f:
+           for audio in audio_files:
+               f.write(f"file '{audio}'\n")
+       subprocess.run([
+           'ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', 'temp/audio_list.txt',
+           '-c', 'copy', output_path
+       ])
+
+   def remove_temp_files(path):
+       subprocess.run(['rm', '-rf', path])
+
+   if __name__ == '__main__':
+       if not os.path.exists('static/videos'):
+           os.makedirs('static/videos')
+       app.run(host='0.0.0.0', port=5000)
+   ```
+
+With this structure, Flask should be able to find the application instance and run it correctly.
+
+jgan_LinkedIn: I would like to add a lot of logging here
+
+GitHub Copilot: To add logging to your tests, you can use Python's built-in `logging` module. Here's how you can modify your 
+
+test_app.py
+
+ to include detailed logging:
+
+```python
+# test_app.py
+import unittest
+import json
+import logging
+from app import app
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+
+class APITestCase(unittest.TestCase):
+    def setUp(self):
+        self.app = app
+
+.test
+
+_client()
+        self.api_key = 'your_api_key'
+        logger.info('Setting up test client and API key')
+
+    def test_create_video(self):
+        logger.info('Starting test_create_video')
+        segments = []
+        for i in range(3):
+            segments.append({
+                "imageUrl": f"https://picsum.photos/800/600?random={i}",
+                "audioUrl": "https://file-examples.com/wp-content/uploads/2017/11/file_example_MP3_700KB.mp3"
+            })
+        data = {
+            "body": str({"segments": segments})
+        }
+        logger.debug(f'Sending request with data: {data}')
+        response = self.app.post('/api/creation', json=data, headers={'X-API-Key': self.api_key})
+        logger.debug(f'Received response: {response.data}')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('Processing started', str(response.data))
+        logger.info('test_create_video passed')
+
+    def test_exceed_segment_limit(self):
+        logger.info('Starting test_exceed_segment_limit')
+        segments = []
+        for i in range(21):
+            segments.append({
+                "imageUrl": f"https://picsum.photos/800/600?random={i}",
+                "audioUrl": "https://file-examples.com/wp-content/uploads/2017/11/file_example_MP3_700KB.mp3"
+            })
+        data = {
+            "body": str({"segments": segments})
+        }
+        logger.debug(f'Sending request with data: {data}')
+        response = self.app.post('/api/creation', json=data, headers={'X-API-Key': self.api_key})
+        logger.debug(f'Received response: {response.data}')
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('Number of segments must be between 1 and 20', str(response.data))
+        logger.info('test_exceed_segment_limit passed')
+
+if __name__ == '__main__':
+    logger.info('Starting tests')
+    unittest.main()
+    logger.info('Tests completed')
+```
+
+In this code:
+- Logging is configured at the beginning of the file.
+- The `logger` object is used to log messages at different levels (`info`, `debug`).
+- Logging statements are added to the 
+
+setUp
+
+ method and each test method to provide detailed information about the test execution process.
+
+jgan_LinkedIn: I would like to add some good logging in this file
+
+GitHub Copilot: To add detailed logging to your 
+
+app.py
+
+ file, you can use Python's built-in 
+
+logging
+
+ module. Here's how you can modify your 
+
+app.py
+
+ to include detailed logging:
+
+```python
+# app.py
+from flask import Flask, request, jsonify  # , send_from_directory
+import os
+import requests
+import subprocess
+import uuid
+import threading
+import logging
+
+app = Flask(__name__)
+
+#
+
+ Configuration
+
+
+API_KEY = 'your_api_key'
+SUCCESS_WEBHOOK_URL = 'https://hook.make.com/success_webhook'
+ERROR_WEBHOOK_URL = 'https://hook.make.com/error_webhook'
+LOG_LEVEL = logging.DEBUG
+
+logging.basicConfig(level=LOG_LEVEL)
+logger = logging.getLogger(__name__)
+
+def allowed_api_key(key):
+    return key == API_KEY
+
+@app.route('/api/creation', methods=['POST'])
+def create_video():
+    api_key = request.headers.get('X-API-Key')
+    if not allowed_api_key(api_key):
+        logger.warning('Unauthorized access attempt')
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    data = request.get_json()
+    try:
+        body = data
+
+.get
+
+('body')
+        segments = eval(body).get('segments')
+        logger.debug(f'Received segments: {segments}')
+    except Exception as e:
+        logger.error(f'Invalid JSON format: {e}')
+        return jsonify({'error': 'Invalid JSON format'}), 400
+
+    if not segments or len(segments) > 20:
+        logger.error('Number of segments must be between 1 and 20')
+        return jsonify({'error': 'Number of segments must be between 1 and 20'}), 400
+
+    video_id = str(uuid.uuid4())
+    logger.info(f'Starting video processing with ID: {video_id}')
+    thread = threading.Thread(target=process_video, args=(video_id, segments))
+    thread.start()
+
+    return jsonify({'status': 'Processing started', 'video_id': video_id}), 200
+
+def process_video(video_id, segments):
+    try:
+        os.makedirs(f'temp/{video_id}')
+        logger.debug(f'Created directory temp/{video_id}')
+        image_files = []
+        audio_files = []
+        durations = []
+
+        # Download files and get durations
+        for index, segment in enumerate(segments):
+            image_url = segment['imageUrl']
+            audio_url = segment['audioUrl']
+
+            image_path = f'temp/{video_id}/image_{index}.png'
+            audio_path = f'temp/{video_id}/audio_{index}.mp3'
+
+            download_file(image_url, image_path)
+            download_file(audio_url, audio_path)
+
+            duration = get_audio_duration(audio_path)
+            durations.append(duration)
+            image_files.append(image_path)
+            audio_files.append(audio_path)
+
+            logger.debug(f'Downloaded and processed segment {index}: image={image_path}, audio={audio_path}, duration={duration}')
+
+        # Create video
+        video_path = f'static/videos/{video_id}.mp4'
+        create_video_from_segments(image_files, audio_files, durations, video_path)
+        logger.info(f'Video created successfully: {video_path}')
+
+        # Trigger success webhook
+        requests.post(SUCCESS_WEBHOOK_URL, json={'video_url': f'/videos/{video_id}.mp4'})
+        logger.info(f'Success webhook triggered for video ID: {video_id}')
+    except Exception as e:
+        logger.error(f'Error processing video ID {video_id}: {e}')
+        # Trigger error webhook
+        requests.post(ERROR_WEBHOOK_URL, json={'error': str(e)})
+    finally:
+        # Clean up
+        remove_temp_files(f'temp/{video_id}')
+        logger.debug(f'Removed temporary files for video ID: {video_id}')
+
+def download_file(url, path):
+    response = requests.get(url)
+    with open
+
+(path
+
+, 'wb') as f:
+        f.write(response.content)
+    logger.debug(f'Downloaded file from {url} to {path}')
+
+def get_audio_duration(path):
+    result = subprocess.run(['ffprobe', '-i', path, '-show_entries', 'format=duration',
+                             '-v', 'quiet', '-of', 'csv=p=0'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    duration = float(result.stdout)
+    logger.debug(f'Got audio duration for {path}: {duration}')
+    return duration
+
+def create_video_from_segments(images, audios, durations, output_path):
+    with open('temp/input.txt', 'w') as f:
+        for i, (image, duration) in enumerate(zip(images, durations)):
+            f.write(f"file '{image}'\nduration {duration}\n")
+    # Add last image to prevent ffmpeg dropping it
+    f.write(f"file '{images[-1]}'\n")
+    # Create video
+    subprocess.run([
+        'ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', 'temp/input.txt',
+        '-vf', 'fade=t=out:st=0:d=2', '-pix_fmt', 'yuv420p', 'temp/temp_video.mp4'
+    ])
+    # Merge audio
+    merge_audio_files(audios, 'temp/merged_audio.mp3')
+    subprocess.run([
+        'ffmpeg', '-y', '-i', 'temp/temp_video.mp4', '-i', 'temp/merged_audio.mp3',
+        '-c:v', 'copy', '-c:a', 'aac', output_path
+    ])
+    logger.debug(f'Created video from segments and saved to {output_path}')
+
+def merge_audio_files(audio_files, output_path):
+    with open('temp/audio_list.txt', 'w') as f:
+        for audio in audio_files:
+            f.write(f"file '{audio}'\n")
+    subprocess.run([
+        'ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', 'temp/audio_list.txt',
+        '-c', 'copy', output_path
+    ])
+    logger.debug(f'Merged audio files into {output_path}')
+
+def remove_temp_files(path):
+    subprocess.run(['rm', '-rf', path])
+    logger.debug(f'Removed temporary files at {path}')
+
+if __name__ == '__main__':
+    if not os.path.exists('static/videos'):
+        os.makedirs('static/videos')
+    app.run(host='0.0.0.0', port=5000)
+```
+
+In this code:
+- Logging is configured at the beginning of the file.
+- The `logger` object is used to log messages at different levels (`info`, `debug`, `warning`, `error`).
+- Logging statements are added throughout the code to provide detailed information about the execution process, including the start and end of functions, key actions, and any errors encountered.
+
+jgan_LinkedIn: I am getting this error
+DEBUG:app:Downloaded and processed segment 2: image=temp/946db3b8-eae0-4d4a-ae85-48b4f26807fb/image_2.png, audio=temp/946db3b8-eae0-4d4a-ae85-48b4f26807fb/audio_2.mp3, duration=1.567347
+ERROR:app:Error processing video ID 946db3b8-eae0-4d4a-ae85-48b4f26807fb: I/O operation on closed file.
+DEBUG:urllib3.connectionpool:Starting new HTTPS connection (1): hook.make.com:443
+
+GitHub Copilot: The error "I/O operation on closed file" typically occurs when you try to perform an operation on a file that has already been closed. This can happen if the file is closed prematurely or if there is an issue with the file handling logic.
+
+In your `create_video_from_segments` function, the file 
+
+input.txt
+
+ is being closed before the `ffmpeg` command is executed. To fix this, ensure that the file is properly closed after writing to it and before running the `ffmpeg` command.
+
+Here's the corrected code for the `create_video_from_segments` function:
+
+```python
+def create_video_from_segments(images, audios, durations, output_path):
+    input_file_path = 'temp/input.txt'
+    with open(input_file_path, 'w') as f:
+        for i, (image, duration) in enumerate(zip(images, durations)):
+            f.write(f"file '{image}'\nduration {duration}\n")
+        # Add last image to prevent ffmpeg dropping it
+        f.write(f"file '{images[-1]}'\n")
+    
+    # Create video
+    subprocess.run([
+        'ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', input_file_path,
+        '-vf', 'fade=t=out:st=0:d=2', '-pix_fmt', 'yuv420p', 'temp/temp_video.mp4'
+    ], check=True)
+    
+    # Merge audio
+    merge_audio_files(audios, 'temp/merged_audio.mp3')
+    subprocess.run([
+        'ffmpeg', '-y', '-i', 'temp/temp_video.mp4', '-i', 'temp/merged_audio.mp3',
+        '-c:v', 'copy', '-c:a', 'aac', output_path
+    ], check=True)
+    
+    logger.debug(f'Created video from segments and saved to {output_path}')
+```
+
+In this code:
+- The `input_file_path` is defined and the file is opened using a `with` statement, which ensures that the file is properly closed after writing to it.
+- The `ffmpeg` commands are executed using `subprocess.run` with the `check=True` argument to ensure that any errors are raised as exceptions.
+
+Additionally, ensure that the `merge_audio_files` function is correctly implemented and does not close any files prematurely. Here is the `merge_audio_files` function for reference:
+
+```python
+def merge_audio_files(audio_files, output_path):
+    audio_list_path = 'temp/audio_list.txt'
+    with open(audio_list_path, 'w') as f:
+        for audio in audio_files:
+            f.write(f"file '{audio}'\n")
+    
+    subprocess.run([
+        'ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', audio_list_path,
+        '-c', 'copy', output_path
+    ], check=True)
+    
+    logger.debug(f'Merged audio files into {output_path}')
+```
+
+With these changes, the file handling should be correct, and the "I/O operation on closed file" error should be resolved.
+
+jgan_LinkedIn: ffmpeg is having this odd error:
+[concat @ 0x7fd17a104340] Impossible to open 'temp/temp/354df117-259b-4a5f-88c7-5e5d3b8a1f76/image_0.png'
+[in#0 @ 0x7fd17a104180] Error opening input: No such file or directory
+
+GitHub Copilot: The error indicates that `ffmpeg` is unable to find the specified file. This could be due to an incorrect file path or a mistake in the directory structure.
+
+Let's ensure that the file paths are correct and that the directories are properly created. Here is the updated code with additional logging to help debug the issue:
+
+```python
+def create_video_from_segments(images, audios, durations, output_path):
+    input_file_path = 'temp/input.txt'
+    with open(input_file_path, 'w') as f:
+        for i, (image, duration) in enumerate(zip(images, durations)):
+            f.write(f"file '{image}'\nduration {duration}\n")
+        # Add last image to prevent ffmpeg dropping it
+        f.write(f"file '{images[-1]}'\n")
+    
+    logger.debug(f'Created input file for ffmpeg: {input_file_path}')
+    
+    # Create video
+    try:
+        subprocess.run([
+            'ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', input_file_path,
+            '-vf', 'fade=t=out:st=0:d=2', '-pix_fmt', 'yuv420p', 'temp/temp_video.mp4'
+        ], check=True)
+        logger.debug('Video created successfully with ffmpeg')
+    except subprocess.CalledProcessError as e:
+        logger.error(f'ffmpeg error: {e}')
+        raise
+
+    # Merge audio
+    merge_audio_files(audios, 'temp/merged_audio.mp3')
+    try:
+        subprocess.run([
+            'ffmpeg', '-y', '-i', 'temp/temp_video.mp4', '-i', 'temp/merged_audio.mp3',
+            '-c:v', 'copy', '-c:a', 'aac', output_path
+        ], check=True)
+        logger.debug(f'Created final video with audio: {output_path}')
+    except subprocess.CalledProcessError as e:
+        logger.error(f'ffmpeg error: {e}')
+        raise
+
+def merge_audio_files(audio_files, output_path):
+    audio_list_path = 'temp/audio_list.txt'
+    with open(audio_list_path, 'w') as f:
+        for audio in audio_files:
+            f.write(f"file '{audio}'\n")
+    
+    logger.debug(f'Created audio list file for ffmpeg: {audio_list_path}')
+    
+    try:
+        subprocess.run([
+            'ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', audio_list_path,
+            '-c', 'copy', output_path
+        ], check=True)
+        logger.debug(f'Merged audio files into {output_path}')
+    except subprocess.CalledProcessError as e:
+        logger.error(f'ffmpeg error: {e}')
+        raise
+
+def remove_temp_files(path):
+    subprocess.run(['rm', '-rf', path])
+    logger.debug(f'Removed temporary files at {path}')
+```
+
+Additionally, ensure that the 
+
+process_video
+
+ function correctly creates the directories and downloads the files:
+
+```python
+def process_video(video_id, segments):
+    try:
+        temp_dir = f'temp/{video_id}'
+        os.makedirs(temp_dir, exist_ok=True)
+        logger.debug(f'Created directory {temp_dir}')
+        image_files = []
+        audio_files = []
+        durations = []
+
+        # Download files and get durations
+        for index, segment in enumerate(segments):
+            image_url = segment['imageUrl']
+            audio_url = segment['audioUrl']
+
+            image_path = f'{temp_dir}/image_{index}.png'
+            audio_path = f'{temp_dir}/audio_{index}.mp3'
+
+            download_file(image_url, image_path)
+            download_file(audio_url, audio_path)
+
+            duration = get_audio_duration(audio_path)
+            durations.append(duration)
+            image_files.append(image_path)
+            audio_files.append(audio_path)
+
+            logger.debug(f'Downloaded and processed segment {index}: image={image_path}, audio={audio_path}, duration={duration}')
+
+        # Create video
+        video_path = f'static/videos/{video_id}.mp4'
+        create_video_from_segments(image_files, audio_files, durations, video_path)
+        logger.info(f'Video created successfully: {video_path}')
+
+        # Trigger success webhook
+        requests.post(SUCCESS_WEBHOOK_URL, json={'video_url': f'/videos/{video_id}.mp4'})
+        logger.info(f'Success webhook triggered for video ID: {video_id}')
+    except Exception as e:
+        logger.error(f'Error processing video ID {video_id}: {e}')
+        # Trigger error webhook
+        requests.post(ERROR_WEBHOOK_URL, json={'error': str(e)})
+    finally:
+        # Clean up
+        remove_temp_files(temp_dir)
+        logger.debug(f'Removed temporary files for video ID: {video_id}')
+```
+
+This code ensures that:
+- The temporary directory is created correctly.
+- The paths for the images and audio files are correctly constructed.
+- Additional logging is added to help debug any issues with file paths or `ffmpeg` commands.
+
+Make sure that the 
+
+temp
+
+ and `static/videos` directories exist and have the correct permissions. If they do not exist, create them before running the application.
+
+jgan_LinkedIn: FFMPEG is having an issue with finding the files and I think it might be an issue where temp is being added twice.
+[concat @ 0x7f8237f04b00] Impossible to open 'temp/temp/0f2ec20c-9c07-4af0-a6d8-1737449c93b3/image_2.png'
+[in#0/concat @ 0x7f8237f04900] Error during demuxing: No such file or directory
+
+
+GitHub Copilot: It appears that FFmpeg is unable to locate the image files because the file paths in your `input.txt` are incorrect. Specifically, the paths are being constructed such that `'temp'` is included twice, resulting in `'temp/temp/<video_id>/image_x.png'`.
+
+**Cause of the Issue:**
+
+- The `input.txt` file is being written to `'temp/input.txt'`, but the image files are located in `'temp/<video_id>/'`.
+- When FFmpeg processes `input.txt`, it interprets the paths relative to the current working directory.
+- Therefore, FFmpeg constructs the paths as `'temp/' + (path from input.txt)`, leading to `'temp/temp/<video_id>/image_x.png'`.
+
+**Solution:**
+
+- Write the `input.txt` file inside the `temp_dir` (`'temp/<video_id>/'`) so that the paths in `input.txt` are correct relative paths.
+- Update the paths in your code to ensure consistency.
+
+**Updated Code:**
+
+Here is the corrected 
+
+create_video_from_segments
+
+ function:
+
+```python
+import os
+
+def create_video_from_segments(images, audios, durations, output_path, temp_dir):
+    input_file_path = os.path.join(temp_dir, 'input.txt')
+    with open(input_file_path, 'w') as f:
+        for image, duration in zip(images, durations):
+            f.write(f"file '{image}'\nduration {duration}\n")
+        # Add last image to prevent ffmpeg dropping it
+        f.write(f"file '{images[-1]}'\n")
+    
+    logger.debug(f'Created input file for ffmpeg: {input_file_path}')
+    
+    temp_video_path = os.path.join(temp_dir, 'temp_video.mp4')
+    
+    # Create video
+    try:
+        subprocess.run([
+            'ffmpeg', '-y', '-f', 'concat', '-safe', '0',
+            '-i', input_file_path,
+            '-vf', 'fade=t=out:st=0:d=2',
+            '-pix_fmt', 'yuv420p',
+            temp_video_path
+        ], check=True)
+        logger.debug('Video created successfully with ffmpeg')
+    except subprocess.CalledProcessError as e:
+        logger.error(f'ffmpeg error during video creation: {e}')
+        raise
+
+    # Merge audio
+    merged_audio_path = os.path.join(temp_dir, 'merged_audio.mp3')
+    merge_audio_files(audios, merged_audio_path)
+    
+    # Combine video and audio
+    try:
+        subprocess.run([
+            'ffmpeg', '-y',
+            '-i', temp_video_path,
+            '-i', merged_audio_path,
+            '-c:v', 'copy', '-c:a', 'aac',
+            output_path
+        ], check=True)
+        logger.debug(f'Created final video with audio: {output_path}')
+    except subprocess.CalledProcessError as e:
+        logger.error(f'ffmpeg error during audio merging: {e}')
+        raise
+```
+
+Update the 
+
+merge_audio_files
+
+ function:
+
+```python
+def merge_audio_files(audio_files, output_path):
+    dir_name = os.path.dirname(output_path)
+    audio_list_path = os.path.join(dir_name, 'audio_list.txt')
+    with open(audio_list_path, 'w') as f:
+        for audio in audio_files:
+            f.write(f"file '{audio}'\n")
+    
+    logger.debug(f'Created audio list file for ffmpeg: {audio_list_path}')
+    
+    try:
+        subprocess.run([
+            'ffmpeg', '-y', '-f', 'concat', '-safe', '0',
+            '-i', audio_list_path,
+            '-c', 'copy', output_path
+        ], check=True)
+        logger.debug(f'Merged audio files into {output_path}')
+    except subprocess.CalledProcessError as e:
+        logger.error(f'ffmpeg error during audio merging: {e}')
+        raise
+```
+
+Modify the `process_video` function to pass `temp_dir`:
+
+```python
+def process_video(video_id, segments):
+    try:
+        temp_dir = f'temp/{video_id}'
+        os.makedirs(temp_dir, exist_ok=True)
+        logger.debug(f'Created directory {temp_dir}')
+        image_files = []
+        audio_files = []
+        durations = []
+
+        # Download files and get durations
+        for index, segment in enumerate(segments):
+            image_url = segment['imageUrl']
+            audio_url = segment['audioUrl']
+
+            image_path = os.path.join(temp_dir, f'image_{index}.png')
+            audio_path = os.path.join(temp_dir, f'audio_{index}.mp3')
+
+            download_file(image_url, image_path)
+            download_file(audio_url, audio_path)
+
+            duration = get_audio_duration(audio_path)
+            durations.append(duration)
+            image_files.append(image_path)
+            audio_files.append(audio_path)
+
+            logger.debug(f'Downloaded and processed segment {index}: image={image_path}, audio={audio_path}, duration={duration}')
+
+        # Create video
+        video_path = f'static/videos/{video_id}.mp4'
+        create_video_from_segments(image_files, audio_files, durations, video_path, temp_dir)
+        logger.info(f'Video created successfully: {video_path}')
+
+        # Trigger success webhook
+        requests.post(SUCCESS_WEBHOOK_URL, json={'video_url': f'/videos/{video_id}.mp4'})
+        logger.info(f'Success webhook triggered for video ID: {video_id}')
+    except Exception as e:
+        logger.error(f'Error processing video ID {video_id}: {e}')
+        # Trigger error webhook
+        requests.post(ERROR_WEBHOOK_URL, json={'error': str(e)})
+    finally:
+        # Clean up
+        remove_temp_files(temp_dir)
+        logger.debug(f'Removed temporary files for video ID: {video_id}')
+```
+
+**Explanation:**
+
+- **`temp_dir` Usage:** By writing `input.txt` and temporary files inside `temp_dir`, all paths used in `input.txt` are relative to the same directory, preventing the duplication of `'temp/'` in paths.
+- **Path Construction:** Used `os.path.join()` for building file paths, ensuring correct path separators across different platforms.
+- **FFmpeg File Paths:** Since `input.txt` resides in `temp_dir`, and image paths in `input.txt` are full paths (or relative to `temp_dir`), FFmpeg can locate the files correctly.
+- **Error Handling:** Added 
+
+check=True
+
+ to 
+
+subprocess.run()
+
+ calls to raise exceptions if FFmpeg encounters errors, which can be caught and logged.
+
+**Additional Tips:**
+
+- **Absolute Paths:** Consider using absolute paths in `input.txt` to eliminate any ambiguity. Modify the code for writing `input.txt`:
+
+  ```python
+  with open(input_file_path, 'w') as f:
+      for image, duration in zip(images, durations):
+          abs_image_path = os.path.abspath(image)
+          f.write(f"file '{abs_image_path}'\nduration {duration}\n")
+      f.write(f"file '{abs_image_path}'\n")
+  ```
+
+- **Working Directory:** Ensure that the current working directory is consistent when running FFmpeg commands.
+
+- **Permissions:** Verify that the application has the necessary permissions to read and write files in the specified directories.
+
+**Summary:**
+
+- The duplication of `'temp/'` in the file paths caused FFmpeg to look for files in the wrong location.
+- Writing `input.txt` inside `temp_dir` and correctly constructing file paths resolves the issue.
+- Using `os.path.join()` improves path handling and portability.
+
+**Verification:**
+
+- After making the changes, run the application and check if FFmpeg can successfully process the files.
+- Monitor the logs for any errors or warnings that could indicate remaining issues.
+
+---
+
+This adjustment should resolve the "Impossible to open" error and allow FFmpeg to find the image files correctly.
+
+jgan_LinkedIn: still seeing the error here:
+[concat @ 0x7fa09b904880] Impossible to open 'temp/6a0c8838-07d5-46ee-b549-0e760d786e88/temp/6a0c8838-07d5-46ee-b549-0e760d786e88/image_0.png'
+[in#0 @ 0x7fa09b904680] Error opening input: No such file or directory
+Error opening input file temp/6a0c8838-07d5-46ee-b549-0e760d786e88/input.txt.
+Error opening input files: No such file or directory
+ERROR:app:ffmpeg error during video creation: Command '['ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', 'temp/6a0c8838-07d5-46ee-b549-0e760d786e88/input.txt', '-vf', 'fade=t=out:st=0:d=2', '-pix_fmt', 'yuv420p', 'temp/6a0c8838-07d5-46ee-b549-0e760d786e88/temp_video.mp4']' returned non-zero exit status 254.
+ERROR:app:Error processing video ID 6a0c8838-07d5-46ee-b549-0e760d786e88: Command '['ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', 'temp/6a0c8838-07d5-46ee-b549-0e760d786e88/input.txt', '-vf', 'fade=t=out:st=0:d=2', '-pix_fmt', 'yuv420p', 'temp/6a0c8838-07d5-46ee-b549-0e760d786e88/temp_video.mp4']' returned non-zero exit status 254.
+
+GitHub Copilot: It appears that the FFmpeg error persists due to incorrect file paths being used in the `input.txt` and `audio_list.txt` files. Specifically, the paths are being constructed in such a way that the `'temp/'` directory is being duplicated, causing FFmpeg to look for files in a non-existent directory.
+
+---
+
+**Cause of the Issue:**
+
+- **Relative Paths Misinterpretation:** When using FFmpeg's `concat` demuxer, the paths inside `input.txt` and `audio_list.txt` are interpreted relative to the current working directory, not relative to the location of these files.
+  
+- **Duplicate 
+
+temp
+
+ in Paths:** Because the paths in `input.txt` include 
+
+temp
+
+, and FFmpeg is also interpreting these paths relative to the current working directory, the 
+
+temp
+
+ directory gets added twice.
+
+- **Incorrect Path Resolution:** This leads FFmpeg to attempt to open a path like `'temp/temp/<video_id>/image_0.png'`, which does not exist.
+
+---
+
+**Solution: Use Absolute Paths in `input.txt` and `audio_list.txt`**
+
+By using absolute file paths in the `input.txt` and `audio_list.txt` files, we eliminate any ambiguity, and FFmpeg can locate the files correctly.
+
+---
+
+### **Updated Code:**
+
+**Modify the 
+
+create_video_from_segments
+
+ Function:**
+
+```python
+import os
+
+def create_video_from_segments(images, audios, durations, output_path, temp_dir):
+    input_file_path = os.path.join(temp_dir, 'input.txt')
+    with open(input_file_path, 'w') as f:
+        for image, duration in zip(images, durations):
+            abs_image_path = os.path.abspath(image)
+            f.write(f"file '{abs_image_path}'\nduration {duration}\n")
+        # Add last image to prevent ffmpeg dropping it
+        abs_last_image_path = os.path.abspath(images[-1])
+        f.write(f"file '{abs_last_image_path}'\n")
+    
+    logger.debug(f'Created input file for ffmpeg: {input_file_path}')
+    
+    temp_video_path = os.path.join(temp_dir, 'temp_video.mp4')
+    
+    # Create video
+    try:
+        subprocess.run([
+            'ffmpeg', '-y', '-f', 'concat', '-safe', '0',
+            '-i', input_file_path,
+            '-vf', 'fade=t=out:st=0:d=2',
+            '-pix_fmt', 'yuv420p',
+            temp_video_path
+        ], check=True)
+        logger.debug('Video created successfully with ffmpeg')
+    except subprocess.CalledProcessError as e:
+        logger.error(f'ffmpeg error during video creation: {e}')
+        raise
+    
+    # Merge audio
+    merged_audio_path = os.path.join(temp_dir, 'merged_audio.mp3')
+    merge_audio_files(audios, merged_audio_path)
+    
+    # Combine video and audio
+    try:
+        subprocess.run([
+            'ffmpeg', '-y',
+            '-i', temp_video_path,
+            '-i', merged_audio_path,
+            '-c:v', 'copy', '-c:a', 'aac',
+            output_path
+        ], check=True)
+        logger.debug(f'Created final video with audio: {output_path}')
+    except subprocess.CalledProcessError as e:
+        logger.error(f'ffmpeg error during audio merging: {e}')
+        raise
+```
+
+**Modify the 
+
+merge_audio_files
+
+ Function:**
+
+```python
+def merge_audio_files(audio_files, output_path):
+    dir_name = os.path.dirname(output_path)
+    audio_list_path = os.path.join(dir_name, 'audio_list.txt')
+    with open(audio_list_path, 'w') as f:
+        for audio in audio_files:
+            abs_audio_path = os.path.abspath(audio)
+            f.write(f"file '{abs_audio_path}'\n")
+    
+    logger.debug(f'Created audio list file for ffmpeg: {audio_list_path}')
+    
+    try:
+        subprocess.run([
+            'ffmpeg', '-y', '-f', 'concat', '-safe', '0',
+            '-i', audio_list_path,
+            '-c', 'copy', output_path
+        ], check=True)
+        logger.debug(f'Merged audio files into {output_path}')
+    except subprocess.CalledProcessError as e:
+        logger.error(f'ffmpeg error during audio merging: {e}')
+        raise
+```
+
+**Ensure the `process_video` Function Passes 
+
+temp_dir
+
+:**
+
+```python
+def process_video(video_id, segments):
+    try:
+        temp_dir = f'temp/{video_id}'
+        os.makedirs(temp_dir, exist_ok=True)
+        logger.debug(f'Created directory {temp_dir}')
+        image_files = []
+        audio_files = []
+        durations = []
+
+        # Download files and get durations
+        for index, segment in enumerate(segments):
+            image_url = segment['imageUrl']
+            audio_url = segment['audioUrl']
+
+            image_path = os.path.join(temp_dir, f'image_{index}.png')
+            audio_path = os.path.join(temp_dir, f'audio_{index}.mp3')
+
+            download_file(image_url, image_path)
+            download_file(audio_url, audio_path)
+
+            duration = get_audio_duration(audio_path)
+            durations.append(duration)
+            image_files.append(image_path)
+            audio_files.append(audio_path)
+
+            logger.debug(f'Downloaded and processed segment {index}: image={image_path}, audio={audio_path}, duration={duration}')
+
+        # Create video
+        video_path = f'static/videos/{video_id}.mp4'
+        create_video_from_segments(image_files, audio_files, durations, video_path, temp_dir)
+        logger.info(f'Video created successfully: {video_path}')
+
+        # Trigger success webhook
+        requests.post(SUCCESS_WEBHOOK_URL, json={'video_url': f'/videos/{video_id}.mp4'})
+        logger.info(f'Success webhook triggered for video ID: {video_id}')
+    except Exception as e:
+        logger.error(f'Error processing video ID {video_id}: {e}')
+        # Trigger error webhook
+        requests.post(ERROR_WEBHOOK_URL, json={'error': str(e)})
+    finally:
+        # Clean up
+        remove_temp_files(temp_dir)
+        logger.debug(f'Removed temporary files for video ID: {video_id}')
+```
+
+---
+
+### **Explanation:**
+
+1. **Use Absolute Paths:**
+
+   - By using 
+
+os.path.abspath(image)
+
+ and 
+
+os.path.abspath(audio)
+
+, we ensure that the paths written in `input.txt` and `audio_list.txt` are absolute paths, eliminating any ambiguity.
+
+2. **Prevent Duplicate Directories:**
+
+   - Absolute paths prevent FFmpeg from adding extra directories to the paths, avoiding duplication like `'temp/temp/<video_id>/image_0.png'`.
+
+3. **FFmpeg Behavior with Paths:**
+
+   - FFmpeg interprets paths in the concat file relative to the current working directory or as absolute if provided.
+   - Using absolute paths ensures FFmpeg can find the files regardless of the working directory.
+
+4. **Consistent Path Handling:**
+
+   - Using 
+
+os.path.join
+
+ and 
+
+os.path.abspath
+
+ ensures that path constructions are correct and cross-platform compatible.
+
+5. **Additional Error Handling:**
+
+   - Using 
+
+check=True
+
+ in 
+
+subprocess.run
+
+ makes sure that any error in FFmpeg commands raises an exception, which we can catch and log.
+
+6. **Logging:**
+
+   - Additional debug statements are included to trace the execution and verify that the correct paths are being used.
+
+---
+
+### **Testing the Changes:**
+
+- **Run the Application:**
+  - Start your Flask application.
+  - Ensure that the necessary directories (
+
+temp
+
+, `static/videos/`) exist and have proper permissions.
+
+- **Execute the Test:**
+  - Run your test suite or make an API request to `/api/creation`.
+  - Monitor the logs for any errors.
+
+- **Verify the Paths:**
+  - Check the contents of `input.txt` and `audio_list.txt` to ensure that they contain absolute paths.
+  - Ensure that the paths correspond to the actual locations of the image and audio files.
+
+---
+
+### **Additional Tips:**
+
+- **Permissions:**
+  - Ensure that the application has read/write permissions for the directories and files involved.
+
+- **Clean Up Temporary Files:**
+  - Confirm that temporary files are being cleaned up properly in the `finally` block.
+
+- **FFmpeg Installation:**
+  - Make sure FFmpeg is correctly installed and accessible in your system's PATH.
+
+- **Error Logging:**
+  - If errors persist, increase the logging level and check the detailed error messages from FFmpeg.
+
+---
+
+**By making these changes, FFmpeg should be able to locate the files correctly using the absolute paths, and the duplication of 'temp/' in the paths will be resolved.**
+
+---
+
+**Example of `input.txt` After Changes:**
+
+```
+file '/absolute/path/to/temp/6a0c8838-07d5-46ee-b549-0e760d786e88/image_0.png'
+duration 5.0
+file '/absolute/path/to/temp/6a0c8838-07d5-46ee-b549-0e760d786e88/image_1.png'
+duration 4.0
+file '/absolute/path/to/temp/6a0c8838-07d5-46ee-b549-0e760d786e88/image_2.png'
+duration 6.0
+file '/absolute/path/to/temp/6a0c8838-07d5-46ee-b549-0e760d786e88/image_2.png'
+```
+
+---
+
+Let me know if you continue to experience issues or if you need further assistance.
+
+jgan_LinkedIn: That worked, can we now create an endpoint called download that if we pass it a file name it will send the file if it exists in the static/videos directory and if it doesn't it will return an error?
+
+GitHub Copilot: To add a `/download` endpoint to your Flask application, include the following code in your 
+
+app.py
+
+:
+
+```python
+from flask import send_from_directory, abort
+from werkzeug.utils import secure_filename
+
+@app.route('/download/<filename>', methods=['GET'])
+def download_file(filename):
+    # Sanitize the filename to prevent directory traversal attacks
+    safe_filename = secure_filename(filename)
+    file_path = os.path.join('static/videos', safe_filename)
+    if os.path.isfile(file_path):
+        logger.info(f'Serving file: {safe_filename}')
+        return send_from_directory('static/videos', safe_filename, as_attachment=True)
+    else:
+        logger.error(f'File not found: {safe_filename}')
+        return jsonify({'error': 'File not found'}), 404
+```
+
+This endpoint checks if the file exists in the 
+
+videos
+
+ directory and serves it if available. If the file doesn't exist, it returns a 404 error.
+
+jgan_LinkedIn: what is the best way to run a flask app on a aws server?
+
+GitHub Copilot: Running a Flask application on an AWS server can be done in several ways. One of the most common and scalable methods is to use AWS Elastic Beanstalk, which abstracts much of the infrastructure management. Another approach is to use an EC2 instance for more control over the environment. Here, I'll outline both methods:
+
+### Method 1: Using AWS Elastic Beanstalk
+
+1. **Install the AWS Elastic Beanstalk CLI**:
+   ```sh
+   pip install awsebcli
+   ```
+
+2. **Initialize Elastic Beanstalk**:
+   Navigate to your project directory and run:
+   ```sh
+   eb init
+   ```
+   Follow the prompts to configure your application and select the appropriate region.
+
+3. **Create an Environment and Deploy**:
+   ```sh
+   eb create flask-env
+   eb deploy
+   ```
+
+4. **Access Your Application**:
+   After deployment, you can access your application using the URL provided by Elastic Beanstalk.
+
+### Method 2: Using an EC2 Instance
+
+1. **Launch an EC2 Instance**:
+   - Go to the AWS Management Console.
+   - Launch a new EC2 instance with an Amazon Linux 2 AMI.
+   - Configure security groups to allow HTTP (port 80) and SSH (port 22) access.
+
+2. **Connect to Your EC2 Instance**:
+   Use SSH to connect to your instance:
+   ```sh
+   ssh -i /path/to/your-key-pair.pem ec2-user@your-ec2-public-dns
+   ```
+
+3. **Install Dependencies**:
+   Update the package list and install necessary packages:
+   ```sh
+   sudo yum update -y
+   sudo yum install -y python3 git
+   sudo pip3 install virtualenv
+   ```
+
+4. **Clone Your Flask Application**:
+   ```sh
+   git clone https://github.com/your-repo/your-flask-app.git
+   cd your-flask-app
+   ```
+
+5. **Set Up a Virtual Environment**:
+   ```sh
+   virtualenv venv
+   source venv/bin/activate
+   pip install -r requirements.txt
+   ```
+
+6. **Run Your Flask Application**:
+   You can use a WSGI server like Gunicorn to run your Flask app:
+   ```sh
+   pip install gunicorn
+   gunicorn -w 4 -b 0.0.0.0:80 app:app
+   ```
+
+7. **Configure Nginx (Optional)**:
+   For better performance and to handle static files, you can set up Nginx as a reverse proxy:
+   ```sh
+   sudo amazon-linux-extras install nginx1
+   sudo systemctl start nginx
+   sudo systemctl enable nginx
+   ```
+
+   Edit the Nginx configuration file:
+   ```sh
+   sudo vi /etc/nginx/nginx.conf
+   ```
+
+   Add the following server block:
+   ```nginx
+   server {
+       listen 80;
+       server_name your-ec2-public-dns;
+
+       location / {
+           proxy_pass http://127.0.0.1:8000;
+           proxy_set_header Host $host;
+           proxy_set_header X-Real-IP $remote_addr;
+           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+           proxy_set_header X-Forwarded-Proto $scheme;
+       }
+   }
+   ```
+
+   Restart Nginx:
+   ```sh
+   sudo systemctl restart nginx
+   ```
+
+### Summary
+
+- **Elastic Beanstalk**: Easier to set up and manage, suitable for most applications.
+- **EC2 Instance**: Provides more control over the environment, suitable for custom configurations.
+
+Choose the method that best fits your needs. For most use cases, AWS Elastic Beanstalk is recommended due to its simplicity and scalability.
+
+jgan_LinkedIn: why is this giving the following error when running the test?
+DEBUG:application:audiourl: https://downloads.tuxfamily.org/pdsounds/sounds/076No%20Title-.mp3
+ERROR:application:Error processing video ID 5c902db4-3eb7-48f7-b68a-af93cd9156f1: download_file() takes 1 positional argument but 2 were given
+DEBUG:urllib3.connectionpool:Starting new HTTPS connection (1): hook.make.com:443
+DEBUG:application:Removed temporary files at temp/5c902db4-3eb7-48f7-b68a-af93cd9156f1
+DEBUG:application:Removed temporary files for video ID: 5c902db4-3eb7-48f7-b68a-af93cd9156f1
+Exception in thread Thread-1 (process_video):
+Traceback (most recent call last):
+  File "/Users/jgan/Projects/videoFlaskApp/application.py", line 79, in process_video
+    download_file(image_url, image_path)
+TypeError: download_file() takes 1 positional argument but 2 were given
+
+During handling of the above exception, another exception occurred:
+
+
+GitHub Copilot: The error message indicates that the 
+
+download_file
+
+ function is defined to take only one positional argument, but it is being called with two arguments (
+
+image_url
+
+ and 
+
+image_path
+
+). This suggests that the 
+
+download_file
+
+ function definition needs to be updated to accept two arguments.
+
+### **Solution:**
+
+Update the 
+
+download_file
+
+ function to accept two arguments: the URL of the file to download and the path where the file should be saved.
+
+### **Updated Code:**
+
+**Update the 
+
+download_file
+
+ function:**
+
+```python
+def download_file(url, path):
+    response = requests.get(url)
+    response.raise_for_status()  # Raise an error for bad status codes
+    with open(path, 'wb') as f:
+        f.write(response.content)
+    logger.debug(f'Downloaded file from {url} to {path}')
+```
+
+**Ensure the `process_video` function calls 
+
+download_file
+
+ correctly:**
+
+```python
+def process_video(video_id, segments):
+    try:
+        temp_dir = f'temp/{video_id}'
+        os.makedirs(temp_dir, exist_ok=True)
+        logger.debug(f'Created directory {temp_dir}')
+        image_files = []
+        audio_files = []
+        durations = []
+
+        # Download files and get durations
+        for index, segment in enumerate(segments):
+            image_url = segment['imageUrl']
+            audio_url = segment['audioUrl']
+
+            image_path = os.path.join(temp_dir, f'image_{index}.png')
+            audio_path = os.path.join(temp_dir, f'audio_{index}.mp3')
+
+            logger.debug(f'imagepath: {image_path}')
+            logger.debug(f'imageurl: {image_url}')
+            logger.debug(f'audiopath: {audio_path}')
+            logger.debug(f'audiourl: {audio_url}')
+
+            download_file(image_url, image_path)
+            download_file(audio_url, audio_path)
+
+            duration = get_audio_duration(audio_path)
+            durations.append(duration)
+            image_files.append(image_path)
+            audio_files.append(audio_path)
+
+            logger.debug(f'Downloaded and processed segment {index}: image={image_path}, audio={audio_path}, duration={duration}')
+
+        # Create video
+        video_path = f'static/videos/{video_id}.mp4'
+        create_video_from_segments(image_files, audio_files, durations, video_path, temp_dir)
+        logger.info(f'Video created successfully: {video_path}')
+
+        # Trigger success webhook
+        requests.post(SUCCESS_WEBHOOK_URL, json={'video_url': f'/videos/{video_id}.mp4'})
+        logger.info(f'Success webhook triggered for video ID: {video_id}')
+    except Exception as e:
+        logger.error(f'Error processing video ID {video_id}: {e}')
+        # Trigger error webhook
+        requests.post(ERROR_WEBHOOK_URL, json={'error': str(e)})
+    finally:
+        # Clean up
+        remove_temp_files(temp_dir)
+        logger.debug(f'Removed temporary files for video ID: {video_id}')
+```
+
+### **Explanation:**
+
+- **Function Definition:** The 
+
+download_file
+
+ function is updated to accept two arguments: `url` and 
+
+path
+
+.
+- **Error Handling:** Added `response.raise_for_status()` to raise an error for bad status codes, ensuring that the download fails gracefully if the URL is invalid or the server returns an error.
+- **Logging:** Added a debug log statement to confirm the file download.
+
+### **Testing:**
+
+- **Run the Tests:** Execute your test suite to ensure that the 
+
+download_file
+
+ function works correctly with the updated definition.
+- **Monitor Logs:** Check the logs for any errors or issues during the download process.
+
+By making these changes, the 
+
+download_file
+
+ function will correctly handle two arguments, and the error should be resolved.
+
+jgan_LinkedIn: In my elastic beanstalk I keep seeing this error:
+Nov 19 03:50:05 ip-172-31-38-101 web[8516]: AttributeError: module 'application' has no attribute 'application'
+Nov 19 03:50:05 ip-172-31-38-101 web[8516]: Failed to find attribute 'application' in 'application'.
+Nov 19 03:50:05 ip-172-31-38-101 web[8516]: [2024-11-19 03:50:05 +0000] [8516] [INFO] Worker exiting (pid: 8516)
+Nov 19 03:50:05 ip-172-31-38-101 web[8512]: [2024-11-19 03:50:05 +0000] [8512] [ERROR] Worker (pid:8516) exited with code 4
+Nov 19 03:50:05 ip-172-31-38-101 web[8512]: [2024-11-19 03:50:05 +0000] [8512] [ERROR] Shutting down: Master
+Nov 19 03:50:05 ip-172-31-38-101 web[8512]: [2024-11-19 03:50:05 +0000] [8512] [ERROR] Reason: App failed to load.
+Nov 19 03:50:06 ip-172-31-38-101 web[8518]: [2024-11-19 03:50:06 +0000] [8518] [INFO] Starting gunicorn 23.0.0
+Nov 19 03:50:06 ip-172-31-38-101 web[8518]: [2024-11-19 03:50:06 +0000] [8518] [INFO] Listening at: http://127.0.0.1:8000 (8518)
+Nov 19 03:50:06 ip-172-31-38-101 web[8518]: [2024-11-19 03:50:06 +0000] [8518] [INFO] Using worker: gthread
+Nov 19 03:50:06 ip-172-31-38-101 web[8522]: [2024-11-19 03:50:06 +0000] [8522] [INFO] Booting worker with pid: 8522
+Nov 19 03:50:06 ip-172-31-38-101 web[8522]: Traceback (most recent call last):
+Nov 19 03:50:06 ip-172-31-38-101 web[8522]:  File "/var/app/venv/staging-LQM1lest/lib64/python3.12/site-packages/gunicorn/util.py", line 413, in import_app
+Nov 19 03:50:06 ip-172-31-38-101 web[8522]:    app = getattr(mod, name)
+Nov 19 03:50:06 ip-172-31-38-101 web[8522]:          ^^^^^^^^^^^^^^^^^^
+
+GitHub Copilot: The error message indicates that Gunicorn is unable to find the Flask application instance in your 
+
+application.py
+
+ file. This is likely because the Flask app instance is not named 
+
+application
+
+, or the module and attribute names are not correctly specified.
+
+### **Solution:**
+
+1. **Ensure the Flask App Instance is Named Correctly:**
+   Make sure your Flask app instance is named 
+
+application
+
+ if you are referring to it as such in your Gunicorn configuration.
+
+2. **Update the 
+
+application.py
+
+ File:**
+   Ensure that the Flask app instance is correctly defined and named 
+
+application
+
+.
+
+### **Updated 
+
+application.py
+
+:**
+
+```python
+from flask import Flask, request, jsonify
+import os
+import requests
+import subprocess
+import uuid
+import threading
+import logging
+
+# Configuration
+
+
+
+
+API_KEY = '25c05693-b83c-4f0b-b0fb-c0d1a17dd5c2'
+SUCCESS_WEBHOOK_URL = 'https://hook.make.com/success_webhook'
+ERROR_WEBHOOK_URL = 'https://hook.make.com/error_webhook'
+LOG_LEVEL = logging.DEBUG
+
+logging.basicConfig(level=LOG_LEVEL)
+logger = logging.getLogger(__name__)
+
+application = Flask(__name__)  # Ensure the app instance is named 'application'
+
+def allowed_api_key(key):
+    return key == API_KEY
+
+@application.route('/api/creation', methods=['POST'])
+def create_video():
+    api_key = request.headers.get('X-API-Key')
+    if not allowed_api_key(api_key):
+        logger.warning('Unauthorized access attempt')
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    data = request.get_json()
+    try:
+        body = data.get('body')
+        segments = eval(body).get('segments')
+        logger.debug(f'Received segments: {segments}')
+    except Exception as e:
+        logger.error(f'Invalid JSON format: {e}')
+        return jsonify({'error': 'Invalid JSON format'}), 400
+
+    if not segments or len(segments) > 20:
+        logger.error('Number of segments must be between 1 and 20')
+        return jsonify({'error': 'Number of segments must be between 1 and 20'}), 400
+
+    video_id = str(uuid.uuid4())
+    logger.info(f'Starting video processing with ID: {video_id}')
+    thread = threading.Thread(target=process_video, args=(video_id, segments))
+    thread.start()
+
+    return jsonify({'status': 'Processing started', 'video_id': video_id}), 200
+
+def process_video(video_id, segments):
+    try:
+        temp_dir = f'temp/{video_id}'
+        os.makedirs(temp_dir, exist_ok=True)
+        logger.debug(f'Created directory {temp_dir}')
+        image_files = []
+        audio_files = []
+        durations = []
+
+        # Download files and get durations
+        for index, segment in enumerate(segments):
+            image_url = segment['imageUrl']
+            audio_url = segment['audioUrl']
+
+            image_path = os.path.join(temp_dir, f'image_{index}.png')
+            audio_path = os.path.join(temp_dir, f'audio_{index}.mp3')
+
+            logger.debug(f'imagepath: {image_path}')
+            logger.debug(f'imageurl: {image_url}')
+            logger.debug(f'audiopath: {audio_path}')
+            logger.debug(f'audiourl: {audio_url}')
+
+            download_file(image_url, image_path)
+            download_file(audio_url, audio_path)
+
+            duration = get_audio_duration(audio_path)
+            durations.append(duration)
+            image_files.append(image_path)
+            audio_files.append(audio_path)
+
+            logger.debug(f'Downloaded and processed segment {index}: image={image_path}, audio={audio_path}, duration={duration}')
+
+        # Create video
+        video_path = f'static/videos/{video_id}.mp4'
+        create_video_from_segments(image_files, audio_files, durations, video_path, temp_dir)
+        logger.info(f'Video created successfully: {video_path}')
+
+        # Trigger success webhook
+        requests.post(SUCCESS_WEBHOOK_URL, json={'video_url': f'/videos/{video_id}.mp4'})
+        logger.info(f'Success webhook triggered for video ID: {video_id}')
+    except Exception as e:
+        logger.error(f'Error processing video ID {video_id}: {e}')
+        # Trigger error webhook
+        requests.post(ERROR_WEBHOOK_URL, json={'error': str(e)})
+    finally:
+        # Clean up
+        remove_temp_files(temp_dir)
+        logger.debug(f'Removed temporary files for video ID: {video_id}')
+
+def download_file(url, path):
+    response = requests.get(url)
+    response.raise_for_status()  # Raise an error for bad status codes
+    with open(path, 'wb') as f:
+        f.write(response.content)
+    logger.debug(f'Downloaded file from {url} to {path}')
+
+def get_audio_duration(path):
+    result = subprocess.run(['ffprobe', '-i', path, '-show_entries', 'format=duration',
+                             '-v', 'quiet', '-of', 'csv=p=0'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    duration = float(result.stdout)
+    logger.debug(f'Got audio duration for {path}: {duration}')
+    return duration
+
+def create_video_from_segments(images, audios, durations, output_path, temp_dir):
+    input_file_path = os.path.join(temp_dir, 'input.txt')
+    with open(input_file_path, 'w') as f:
+        for image, duration in zip(images, durations):
+            abs_image_path = os.path.abspath(image)
+            f.write(f"file '{abs_image_path}'\nduration {duration}\n")
+        # Add last image to prevent ffmpeg dropping it
+        abs_last_image_path = os.path.abspath(images[-1])
+        f.write(f"file '{abs_last_image_path}'\n")
+    
+    logger.debug(f'Created input file for ffmpeg: {input_file_path}')
+    
+    temp_video_path = os.path.join(temp_dir, 'temp_video.mp4')
+    
+    # Create video
+    try:
+        subprocess.run([
+            'ffmpeg', '-y', '-f', 'concat', '-safe', '0',
+            '-i', input_file_path,
+            '-vf', 'fade=t=out:st=0:d=2',
+            '-pix_fmt', 'yuv420p',
+            temp_video_path
+        ], check=True)
+        logger.debug('Video created successfully with ffmpeg')
+    except subprocess.CalledProcessError as e:
+        logger.error(f'ffmpeg error during video creation: {e}')
+        raise
+    
+    # Merge audio
+    merged_audio_path = os.path.join(temp_dir, 'merged_audio.mp3')
+    merge_audio_files(audios, merged_audio_path)
+    
+    # Combine video and audio
+    try:
+        subprocess.run([
+            'ffmpeg', '-y',
+            '-i', temp_video_path,
+            '-i', merged_audio_path,
+            '-c:v', 'copy', '-c:a', 'aac',
+            output_path
+        ], check=True)
+        logger.debug(f'Created final video with audio: {output_path}')
+    except subprocess.CalledProcessError as e:
+        logger.error(f'ffmpeg error during audio merging: {e}')
+        raise
+
+def merge_audio_files(audio_files, output_path):
+    dir_name = os.path.dirname(output_path)
+    audio_list_path = os.path.join(dir_name, 'audio_list.txt')
+    with open(audio_list_path, 'w') as f:
+        for audio in audio_files:
+            abs_audio_path = os.path.abspath(audio)
+            f.write(f"file '{abs_audio_path}'\n")
+    
+    logger.debug(f'Created audio list file for ffmpeg: {audio_list_path}')
+    
+    try:
+        subprocess.run([
+            'ffmpeg', '-y', '-f', 'concat', '-safe', '0',
+            '-i', audio_list_path,
+            '-c', 'copy', output_path
+        ], check=True)
+        logger.debug(f'Merged audio files into {output_path}')
+    except subprocess.CalledProcessError as e:
+        logger.error(f'ffmpeg error during audio merging: {e}')
+        raise
+
+def remove_temp_files(path):
+    subprocess.run(['rm', '-rf', path])
+    logger.debug(f'Removed temporary files at {path}')
+
+if __name__ == '__main__':
+    if not os.path.exists('static/videos'):
+        os.makedirs('static/videos')
+    application.run(host='0.0.0.0', port=5000)
+```
+
+### **Explanation:**
+
+- **Flask App Instance:** The Flask app instance is named 
+
+application
+
+ to match the expected attribute name.
+- **Gunicorn Configuration:** Ensure that your Gunicorn command points to the correct module and attribute. For example, if your file is named 
+
+application.py
+
+, the command should be:
+  ```sh
+  gunicorn -w 4 -b 0.0.0.0:8000 application:application
+  ```
+
+### **Deploying to Elastic Beanstalk:**
+
+1. **Create a 
+
+requirements.txt
+
+ File:**
+   Ensure you have a 
+
+requirements.txt
+
+ file listing all dependencies:
+   ```sh
+   pip freeze > requirements.txt
+   ```
+
+2. **Create a `Procfile`:**
+   Create a `Procfile` in the root of your project directory with the following content:
+   ```sh
+   web: gunicorn -w 4 -b 0.0.0.0:8000 application:application
+   ```
+
+3. **Deploy to Elastic Beanstalk:**
+   Use the Elastic Beanstalk CLI to deploy your application:
+   ```sh
+   eb init
+   eb create flask-env
+   eb deploy
+   ```
+
+By following these steps, your Flask application should be correctly deployed on AWS Elastic Beanstalk, and the 
+
+application
+
+ attribute should be correctly recognized by Gunicorn.
+
+jgan_LinkedIn: in elasticbeanstalk, this flask app is dumping out errors like the following:
+ Nov 19 03:50:01 ip-172-31-38-101 web[8462]: Traceback (most recent call last):
+Nov 19 03:50:01 ip-172-31-38-101 web[8462]:  File "/var/app/venv/staging-LQM1lest/lib64/python3.12/site-packages/gunicorn/util.py", line 413, in import_app
+Nov 19 03:50:01 ip-172-31-38-101 web[8462]:    app = getattr(mod, name)
+Nov 19 03:50:01 ip-172-31-38-101 web[8462]:          ^^^^^^^^^^^^^^^^^^
+Nov 19 03:50:01 ip-172-31-38-101 web[8462]: AttributeError: module 'application' has no attribute 'application'
+Nov 19 03:50:01 ip-172-31-38-101 web[8462]: Failed to find attribute 'application' in 'application'.
+Nov 19 03:50:01 ip-172-31-38-101 web[8462]: [2024-11-19 03:50:01 +0000] [8462] [INFO] Worker exiting (pid: 8462)
+Nov 19 03:50:02 ip-172-31-38-101 web[8431]: [2024-11-19 03:50:02 +0000] [8431] [ERROR] Worker (pid:8462) exited with code 4
+Nov 19 03:50:02 ip-172-31-38-101 web[8431]: [2024-11-19 03:50:02 +0000] [8431] [ERROR] Shutting down: Master
+Nov 19 03:50:02 ip-172-31-38-101 web[8431]: [2024-11-19 03:50:02 +0000] [8431] [ERROR] Reason: App failed to load.
+Nov 19 03:50:02 ip-172-31-38-101 web[8494]: [2024-11-19 03:50:02 +0000] [8494] [INFO] Starting gunicorn 23.0.0
+Nov 19 03:50:02 ip-172-31-38-101 web[8494]: [2024-11-19 03:50:02 +0000] [8494] [INFO] Listening at: http://127.0.0.1:8000 (8494)
+Nov 19 03:50:02 ip-172-31-38-101 web[8494]: [2024-11-19 03:50:02 +0000] [8494] [INFO] Using worker: gthread
+Nov 19 03:50:02 ip-172-31-38-101 web[8498]: [2024-11-19 03:50:02 +0000] [8498] [INFO] Booting worker with pid: 8498
+Nov 19 03:50:02 ip-172-31-38-101 web[8498]: Traceback (most recent call last):
+Nov 19 03:50:02 ip-172-31-38-101 web[8498]:  File "/var/app/venv/staging-LQM1lest/lib64/python3.12/site-packages/gunicorn/util.py", line 413, in import_app
+Nov 19 03:50:02 ip-172-31-38-101 web[8498]:    app = getattr(mod, name)
+Nov 19 03:50:02 ip-172-31-38-101 web[8498]:          ^^^^^^^^^^^^^^^^^^
+Nov 19 03:50:02 ip-172-31-38-101 web[8498]: AttributeError: module 'application' has no attribute 'application'
+Nov 19 03:50:02 ip-172-31-38-101 web[8498]: Failed to find attribute 'application' in 'application'.
+
+GitHub Copilot: The error message indicates that Gunicorn is unable to find the Flask application instance in your 
+
+application.py
+
+ file. This is likely because the Flask app instance is not named 
+
+application
+
+, or the module and attribute names are not correctly specified.
+
+### **Solution:**
+
+1. **Ensure the Flask App Instance is Named Correctly:**
+   Make sure your Flask app instance is named 
+
+application
+
+ if you are referring to it as such in your Gunicorn configuration.
+
+2. **Update the 
+
+application.py
+
+ File:**
+   Ensure that the Flask app instance is correctly defined and named 
+
+application
+
+.
+
+### **Updated 
+
+application.py
+
+:**
+
+```python
+import os
+import requests
+import subprocess
+import uuid
+import threading
+import logging
+from flask import Flask, request, jsonify
+from werkzeug.utils import secure_filename
+
+application = Flask(__name__)  # Ensure the app instance is named 'application'
+
+# Configuration
+
+
+API
+
+_KEY = '25c05693-b83c-4f0b-b0fb-c0d1a17dd5c2'
+SUCCESS_WEBHOOK_URL = 'https://hook.make.com/success_webhook'
+ERROR_WEBHOOK_URL = 'https://hook.make.com/error_webhook'
+LOG_LEVEL = logging.DEBUG
+
+logging.basicConfig(level=LOG_LEVEL)
+logger = logging.getLogger(__name__)
+
+def allowed_api_key(key):
+    return key == API_KEY
+
+@application.route('/api/creation', methods=['POST'])
+def create_video():
+    api_key = request.headers.get('X-API-Key')
+    if not allowed_api_key(api_key):
+        logger.warning('Unauthorized access attempt')
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    data = request.get_json()
+    try:
+        body = data.get('body')
+        segments = eval(body).get('segments')
+        logger.debug(f'Received segments: {segments}')
+    except Exception as e:
+        logger.error(f'Invalid JSON format: {e}')
+        return jsonify({'error': 'Invalid JSON format'}), 400
+
+    if not segments or len(segments) > 20:
+        logger.error('Number of segments must be between 1 and 20')
+        return jsonify({'error': 'Number of segments must be between 1 and 20'}), 400
+
+    video_id = str(uuid.uuid4())
+    logger.info(f'Starting video processing with ID: {video_id}')
+    thread = threading.Thread(target=process_video, args=(video_id, segments))
+    thread.start()
+
+    return jsonify({'status': 'Processing started', 'video_id': video_id}), 200
+
+def process_video(video_id, segments):
+    try:
+        temp_dir = f'temp/{video_id}'
+        os.makedirs(temp_dir, exist_ok=True)
+        logger.debug(f'Created directory {temp_dir}')
+        image_files = []
+        audio_files = []
+        durations = []
+
+        # Download files and get durations
+        for index, segment in enumerate(segments):
+            image_url = segment['imageUrl']
+            audio_url = segment['audioUrl']
+
+            image_path = os.path.join(temp_dir, f'image_{index}.png')
+            audio_path = os.path.join(temp_dir, f'audio_{index}.mp3')
+
+            logger.debug(f'imagepath: {image_path}')
+            logger.debug(f'imageurl: {image_url}')
+            logger.debug(f'audiopath: {audio_path}')
+            logger.debug(f'audiourl: {audio_url}')
+
+            download_file(image_url, image_path)
+            download_file(audio_url, audio_path)
+
+            duration = get_audio_duration(audio_path)
+            durations.append(duration)
+            image_files.append(image_path)
+            audio_files.append(audio_path)
+
+            logger.debug(f'Downloaded and processed segment {index}: image={image_path}, audio={audio_path}, duration={duration}')
+
+        # Create video
+        video_path = f'static/videos/{video_id}.mp4'
+        create_video_from_segments(image_files, audio_files, durations, video_path, temp_dir)
+        logger.info(f'Video created successfully: {video_path}')
+
+        # Trigger success webhook
+        requests.post(SUCCESS_WEBHOOK_URL, json={'video_url': f'/videos/{video_id}.mp4'})
+        logger.info(f'Success webhook triggered for video ID: {video_id}')
+    except Exception as e:
+        logger.error(f'Error processing video ID {video_id}: {e}')
+        # Trigger error webhook
+        requests.post(ERROR_WEBHOOK_URL, json={'error': str(e)})
+    finally:
+        # Clean up
+        remove_temp_files(temp_dir)
+        logger.debug(f'Removed temporary files for video ID: {video_id}')
+
+def download_file(url, path):
+    response = requests.get(url)
+    response.raise_for_status()  # Raise an error for bad status codes
+    with open(path, 'wb') as f:
+        f.write(response.content)
+    logger.debug(f'Downloaded file from {url} to {path}')
+
+def get_audio_duration(path):
+    result = subprocess.run(['ffprobe', '-i', path, '-show_entries', 'format=duration',
+                             '-v', 'quiet', '-of', 'csv=p=0'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    duration = float(result.stdout)
+    logger.debug(f'Got audio duration for {path}: {duration}')
+    return duration
+
+def create_video_from_segments(images, audios, durations, output_path, temp_dir):
+    input_file_path = os.path.join(temp_dir, 'input.txt')
+    with open(input_file_path, 'w') as f:
+        for image, duration in zip(images, durations):
+            abs_image_path = os.path.abspath(image)
+            f.write(f"file '{abs_image_path}'\nduration {duration}\n")
+        # Add last image to prevent ffmpeg dropping it
+        abs_last_image_path = os.path.abspath(images[-1])
+        f.write(f"file '{abs_last_image_path}'\n")
+    
+    logger.debug(f'Created input file for ffmpeg: {input_file_path}')
+    
+    temp_video_path = os.path.join(temp_dir, 'temp_video.mp4')
+    
+    # Create video
+    try:
+        subprocess.run([
+            'ffmpeg', '-y', '-f', 'concat', '-safe', '0',
+            '-i', input_file_path,
+            '-vf', 'fade=t=out:st=0:d=2',
+            '-pix_fmt', 'yuv420p',
+            temp_video_path
+        ], check=True)
+        logger.debug('Video created successfully with ffmpeg')
+    except subprocess.CalledProcessError as e:
+        logger.error(f'ffmpeg error during video creation: {e}')
+        raise
+    
+    # Merge audio
+    merged_audio_path = os.path.join(temp_dir, 'merged_audio.mp3')
+    merge_audio_files(audios, merged_audio_path)
+    
+    # Combine video and audio
+    try:
+        subprocess.run([
+            'ffmpeg', '-y',
+            '-i', temp_video_path,
+            '-i', merged_audio_path,
+            '-c:v', 'copy', '-c:a', 'aac',
+            output_path
+        ], check=True)
+        logger.debug(f'Created final video with audio: {output_path}')
+    except subprocess.CalledProcessError as e:
+        logger.error(f'ffmpeg error during audio merging: {e}')
+        raise
+
+def merge_audio_files(audio_files, output_path):
+    dir_name = os.path.dirname(output_path)
+    audio_list_path = os.path.join(dir_name, 'audio_list.txt')
+    with open(audio_list_path, 'w') as f:
+        for audio in audio_files:
+            abs_audio_path = os.path.abspath(audio)
+            f.write(f"file '{abs_audio_path}'\n")
+    
+    logger.debug(f'Created audio list file for ffmpeg: {audio_list_path}')
+    
+    try:
+        subprocess.run([
+            'ffmpeg', '-y', '-f', 'concat', '-safe', '0',
+            '-i', audio_list_path,
+            '-c', 'copy', output_path
+        ], check=True)
+        logger.debug(f'Merged audio files into {output_path}')
+    except subprocess.CalledProcessError as e:
+        logger.error(f'ffmpeg error during audio merging: {e}')
+        raise
+
+def remove_temp_files(path):
+    subprocess.run(['rm', '-rf', path])
+    logger.debug(f'Removed temporary files at {path}')
+
+if __name__ == '__main__':
+    if not os.path.exists('static/videos'):
+        os.makedirs('static/videos')
+    application.run(host='0.0.0.0', port=5000)
+```
+
+### **Explanation:**
+
+- **Flask App Instance:** The Flask app instance is named 
+
+application
+
+ to match the expected attribute name.
+- **Gunicorn Configuration:** Ensure that your Gunicorn command points to the correct module and attribute. For example, if your file is named 
+
+application.py
+
+, the command should be:
+  ```sh
+  gunicorn -w 4 -b 0.0.0.0:8000 application:application
+  ```
+
+### **Deploying to Elastic Beanstalk:**
+
+1. **Create a 
+
+requirements.txt
+
+ File:**
+   Ensure you have a 
+
+requirements.txt
+
+ file listing all dependencies:
+   ```sh
+   pip freeze > requirements.txt
+   ```
+
+2. **Create a `Procfile`:**
+   Create a `Procfile` in the root of your project directory with the following content:
+   ```sh
+   web: gunicorn -w 4 -b 0.0.0.0:8000 application:application
+   ```
+
+3. **Deploy to Elastic Beanstalk:**
+   Use the Elastic Beanstalk CLI to deploy your application:
+   ```sh
+   eb init
+   eb create flask-env
+   eb deploy
+   ```
+
+By following these steps, your Flask application should be correctly deployed on AWS Elastic Beanstalk, and the 
+
+application
+
+ attribute should be correctly recognized by Gunicorn.
