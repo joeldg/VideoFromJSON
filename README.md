@@ -48,243 +48,372 @@ All the following was written by the AI designer that generated this fully worki
 ## Requirements
 
 - Python 3.12
-- Flask 3.1.0
-- ffmpeg
-- ffprobe
+- Docker
+- Docker Compose
+- ffmpeg and ffprobe (for local development)
 
 ## Installation
 
-### Prerequisites
-
-- Python 3.12
-- Flask 3.1.0
-- `ffmpeg` and `ffprobe` installed and added to your system's PATH
-- AWS Account with appropriate permissions
-- AWS Elastic Beanstalk CLI (`eb` command)
-
-### Local Installation
+### Using Docker (Recommended)
 
 1. Clone the repository:
     ```sh
     git clone <repository-url>
-    cd videoFlaskApp
+    cd VideoFromJSON
     ```
 
-2. Install the required packages:
+2. Build and start the Docker container:
     ```sh
+    docker-compose up --build
+    ```
+
+3. The application will be available at `http://localhost:5000`
+
+### Local Development
+
+1. Create and activate a virtual environment:
+    ```sh
+    # Create a new virtual environment
+    python -m venv venv
+
+    # Activate the virtual environment
+    # On macOS/Linux:
+    source venv/bin/activate
+    # On Windows:
+    .\venv\Scripts\activate
+
+    # Verify activation (should show path to venv)
+    which python
+    ```
+
+2. Install dependencies:
+    ```sh
+    # Upgrade pip first
+    python -m pip install --upgrade pip
+
+    # Install project dependencies
     pip install -r requirements.txt
     ```
 
-3. Ensure `ffmpeg` and `ffprobe` are installed on your system.
-
-Ensure that you have `ffmpeg` and `ffprobe` installed on your system. You can install them via:
-
-- **macOS (using Homebrew):**
-
-  ```sh
-  brew install ffmpeg
-  ```
-
-- **Ubuntu/Debian:**
-
-  ```sh
-  sudo apt-get install ffmpeg
-  ```
-
-- **Windows:**
-
-  Download the binaries from the [FFmpeg official website](https://ffmpeg.org/download.html) and add them to your system's PATH.
-
-### Deployment to AWS Elastic Beanstalk
-
-Follow these steps to deploy the application to AWS Elastic Beanstalk:
-
-1. **Install the AWS Elastic Beanstalk CLI:**
-
-   - **macOS (using Homebrew):**
-
-     ```sh
-     brew install awsebcli
-     ```
-
-   - **Windows and Linux:**
-
-     Install via `pip`:
-
-     ```sh
-     pip install awsebcli --upgrade
-     ```
-
-     Or follow the instructions on the [AWS Elastic Beanstalk CLI Installation Guide](https://docs.aws.amazon.com/elasticbeanstalk/latest/dg/eb-cli3-install.html).
-
-2. **Configure AWS Credentials:**
-
-   Ensure you have your AWS Access Key ID and Secret Access Key configured.
-
-   ```sh
-   aws configure
-   ```
-
-   You will be prompted to enter:
-
-   - AWS Access Key ID
-   - AWS Secret Access Key
-   - Default region name (e.g., `us-west-2`)
-   - Default output format (leave blank or set to `json`)
-
-   If you haven't generated access keys, create them in the AWS Management Console under IAM Users.
-
-3. **Initialize the Elastic Beanstalk Application:**
-
-   Navigate to your project directory:
-
-   ```sh
-   cd videoFlaskApp
-   ```
-
-   Initialize the application:
-
-   ```sh
-   eb init
-   ```
-
-   During initialization:
-
-   - Select the region where you want to deploy your application.
-   - Enter the application name (e.g., `video-flask-app`).
-   - Select the platform (choose `3` for Python if prompted).
-   - Choose the default Python version (e.g., `Python 3.8`).
-   - When asked if you want to set up SSH for your instances, you can choose `yes` or `no` depending on your needs.
-
-4. **Create an Environment:**
-
-   ```sh
-   eb create video-flask-app-env
-   ```
-
-   Replace `video-flask-app-env` with a unique name for your environment.
-
-   This command creates an environment and deploys the application. It may take a few minutes to complete.
-
-5. **Set Environment Variables:**
-
-   Set necessary environment variables (e.g., `API_KEY`, `SUCCESS_WEBHOOK_URL`, `ERROR_WEBHOOK_URL`):
-
-   ```sh
-   eb setenv API_KEY=your_api_key_here SUCCESS_WEBHOOK_URL=your_success_webhook_url ERROR_WEBHOOK_URL=your_error_webhook_url
-   ```
-
-6. **Update Application Configurations (if needed):**
-
-   Create a directory named `.ebextensions` in your project root if it doesn't exist:
-
-   ```sh
-   mkdir .ebextensions
-   ```
-
-   Inside `.ebextensions`, create configuration files (e.g., `python.config`) to install packages or run commands on the EC2 instances.
-
-   **Example (`python.config`):**
-
-   ```yaml
-   // filepath: .ebextensions/python.config
-
-   packages:
-     yum:
-       git: []
-       libjpeg-devel: []
-       zlib-devel: []
-       freetype-devel: []
-
-   commands:
-     01_install_ffmpeg:
-       command: "sudo amazon-linux-extras install epel -y && sudo yum install -y ffmpeg"
-
-   option_settings:
-     aws:elasticbeanstalk:container:python:
-       WSGIPath: application.py
-   ```
-
-7. **Create a Requirements File:**
-
-   Ensure all dependencies are listed in `requirements.txt`:
-
-   ```sh
-   pip freeze > requirements.txt
-   ```
-
-8. **Deploy the Application:**
-
-   ```sh
-   eb deploy
-   ```
-
-   This command packages your application and deploys it to the Elastic Beanstalk environment.
-
-9. **Verify the Deployment:**
-
-   After deployment, Elastic Beanstalk provides a URL for your application:
-
-   ```sh
-   eb status
-   ```
-
-   Access the application using the provided URL.
-
-10. **Managing the Application:**
-
-    - **View Logs:**
-
+3. Install ffmpeg and ffprobe:
+    - **macOS (using Homebrew):**
       ```sh
-      eb logs
+      brew install ffmpeg
       ```
-
-    - **Monitor Health:**
-
+    - **Ubuntu/Debian:**
       ```sh
-      eb health
+      sudo apt-get install ffmpeg
       ```
+    - **Windows:**
+      Download from [FFmpeg official website](https://ffmpeg.org/download.html)
 
-    - **Open the Application in Browser:**
-
-      ```sh
-      eb open
-      ```
-
-    - **Terminate the Environment:**
-
-      If you want to terminate the environment:
-
-      ```sh
-      eb terminate video-flask-app-env
-      ```
-
-      Replace `video-flask-app-env` with your environment name.
-
-**Notes:**
-
-- **Database and Storage:** If your application requires a database or persistent storage (like S3), ensure you configure these services and update your application accordingly.
-
-- **Security Groups and Permissions:** Configure security groups to allow necessary inbound and outbound traffic. Adjust IAM roles and permissions as needed.
-
-- **Scaling and Load Balancing:** Elastic Beanstalk can handle scaling. Configure the auto-scaling group and load balancer settings if your application needs to scale based on demand.
-
-- **Custom Domain:** To use a custom domain, configure Route 53 or your DNS provider to point to the Elastic Beanstalk environment URL.
-
-## Configuration
-
-Configure your Elastic Beanstalk environment by updating the `.elasticbeanstalk/config.yml` file.
-
-Modify the `application.py` file to configure the API key and webhook URLs:
-
-## Running the Application
-
-1. Run the Flask application:
+4. Run the application:
     ```sh
+    # Development mode with auto-reload
+    FLASK_APP=application.py FLASK_ENV=development python -m flask run
+
+    # Or directly
     python application.py
     ```
 
-2. The application will be available at `http://localhost:5000`.
+5. Deactivate the virtual environment when done:
+    ```sh
+    deactivate
+    ```
+
+## Command Line Interface (CLI)
+
+The project includes a CLI tool for various operations. To use it, ensure your virtual environment is activated.
+
+### Basic Usage
+
+```sh
+# Show help
+python -m app.cli --help
+
+# Show specific command help
+python -m app.cli process --help
+
+# Show version
+python -m app.cli --version
+```
+
+### Available Commands
+
+1. **Process Video**
+   ```sh
+   # Basic usage
+   python -m app.cli process <input_video> <platform> [options]
+
+   # Examples with different platforms
+   python -m app.cli process video.mp4 youtube
+   python -m app.cli process video.mp4 tiktok
+   python -m app.cli process video.mp4 instagram
+   python -m app.cli process video.mp4 facebook
+
+   # With subtitles
+   python -m app.cli process video.mp4 youtube --subtitles subtitles.json
+
+   # With watermark
+   python -m app.cli process video.mp4 youtube --watermark "My Brand"
+
+   # With custom resolution
+   python -m app.cli process video.mp4 youtube --resolution 1920x1080
+
+   # With output path
+   python -m app.cli process video.mp4 youtube --output processed_video.mp4
+
+   # With all options
+   python -m app.cli process video.mp4 youtube \
+     --subtitles subtitles.json \
+     --watermark "My Brand" \
+     --resolution 1920x1080 \
+     --output processed_video.mp4
+   ```
+
+   Options:
+   - `--subtitles`: Path to subtitle file (JSON format)
+   - `--watermark`: Add watermark text
+   - `--resolution`: Set output resolution (e.g., 1920x1080)
+   - `--output`: Specify output file path
+   - `--quality`: Set video quality (1-10, default: 8)
+   - `--fps`: Set frames per second (default: 30)
+   - `--audio-volume`: Adjust audio volume (0.0-2.0, default: 1.0)
+   - `--background-music`: Add background music file
+   - `--background-volume`: Set background music volume (0.0-1.0, default: 0.3)
+
+2. **Create Test Videos**
+   ```sh
+   # Create a landscape test video
+   python -m app.cli create-test-video landscape
+
+   # Create a vertical test video
+   python -m app.cli create-test-video vertical
+
+   # Create with custom duration
+   python -m app.cli create-test-video landscape --duration 15
+
+   # Create with custom text
+   python -m app.cli create-test-video landscape --text "Custom Test Video"
+
+   # Create with background color
+   python -m app.cli create-test-video landscape --background-color "#FF0000"
+   ```
+
+   Options:
+   - `--duration`: Video duration in seconds (default: 10)
+   - `--text`: Custom text to display
+   - `--background-color`: Hex color code for background
+   - `--output`: Custom output path
+
+3. **Clean Temporary Files**
+   ```sh
+   # Clean files older than 7 days (default)
+   python -m app.cli clean-temp
+
+   # Clean files older than specified days
+   python -m app.cli clean-temp --days 14
+
+   # Clean specific directories
+   python -m app.cli clean-temp --dirs temp_videos temp_images
+
+   # Dry run (show what would be cleaned)
+   python -m app.cli clean-temp --dry-run
+   ```
+
+   Options:
+   - `--days`: Number of days to keep files (default: 7)
+   - `--dirs`: Specific directories to clean
+   - `--dry-run`: Show what would be cleaned without actually cleaning
+
+4. **Generate Random Data**
+   ```sh
+   # Generate basic test data
+   python -m app.cli generate-random-data
+
+   # Generate with specific number of segments
+   python -m app.cli generate-random-data --segments 5
+
+   # Generate with specific duration
+   python -m app.cli generate-random-data --duration 30
+
+   # Generate with specific platform
+   python -m app.cli generate-random-data --platform tiktok
+
+   # Generate with all options
+   python -m app.cli generate-random-data \
+     --segments 5 \
+     --duration 30 \
+     --platform tiktok \
+     --output test_data.json
+   ```
+
+   Options:
+   - `--segments`: Number of segments to generate (default: 3)
+   - `--duration`: Total video duration in seconds (default: 15)
+   - `--platform`: Target platform (youtube, tiktok, instagram, facebook)
+   - `--output`: Output JSON file path
+
+### CLI Configuration
+
+The CLI can be configured using environment variables or a config file:
+
+1. **Environment Variables**:
+   ```sh
+   # Set default platform
+   export VFJ_DEFAULT_PLATFORM=youtube
+
+   # Set default output directory
+   export VFJ_OUTPUT_DIR=processed_videos
+
+   # Set log level
+   export VFJ_LOG_LEVEL=DEBUG
+
+   # Set API key
+   export VFJ_API_KEY=your_api_key
+   ```
+
+2. **Config File**:
+   Create a `config.json` in your home directory:
+   ```json
+   {
+     "default_platform": "youtube",
+     "output_dir": "processed_videos",
+     "log_level": "DEBUG",
+     "api_key": "your_api_key",
+     "temp_dir": "temp",
+     "cleanup_days": 7
+   }
+   ```
+
+### Logging and Debugging
+
+1. **Log Levels**:
+   ```sh
+   # Set log level via environment variable
+   export VFJ_LOG_LEVEL=DEBUG
+
+   # Or via command line
+   python -m app.cli process video.mp4 youtube --log-level DEBUG
+   ```
+
+   Available levels:
+   - `DEBUG`: Detailed information for debugging
+   - `INFO`: General information about operations
+   - `WARNING`: Warning messages for potential issues
+   - `ERROR`: Error messages for failed operations
+   - `CRITICAL`: Critical errors that prevent operation
+
+2. **Log File**:
+   ```sh
+   # Enable log file
+   python -m app.cli process video.mp4 youtube --log-file app.log
+
+   # Rotate logs
+   python -m app.cli process video.mp4 youtube --log-file app.log --log-rotate
+   ```
+
+3. **Debug Mode**:
+   ```sh
+   # Enable debug mode
+   python -m app.cli process video.mp4 youtube --debug
+
+   # Show verbose output
+   python -m app.cli process video.mp4 youtube --verbose
+   ```
+
+### Common CLI Issues and Solutions
+
+1. **Command Not Found**
+   - Ensure virtual environment is activated
+   - Verify Python path is correct
+   - Check if package is installed
+   - Try reinstalling the package:
+     ```sh
+     pip uninstall videofromjson
+     pip install -e .
+     ```
+
+2. **Import Errors**
+   - Activate virtual environment
+   - Reinstall dependencies
+   - Check PYTHONPATH
+   - Verify package structure:
+     ```sh
+     python -c "import app.cli; print(app.cli.__file__)"
+     ```
+
+3. **Permission Issues**
+   - Use appropriate file permissions
+   - Run with correct user privileges
+   - Check file ownership
+   - Fix permissions:
+     ```sh
+     chmod +x app/cli.py
+     chmod -R 755 app/
+     ```
+
+4. **Video Processing Issues**
+   - Check ffmpeg installation:
+     ```sh
+     ffmpeg -version
+     ```
+   - Verify input file format:
+     ```sh
+     ffprobe input_video.mp4
+     ```
+   - Check available disk space:
+     ```sh
+     df -h
+     ```
+
+5. **Memory Issues**
+   - Monitor memory usage:
+     ```sh
+     top -p $(pgrep -f "python -m app.cli")
+     ```
+   - Adjust video quality:
+     ```sh
+     python -m app.cli process video.mp4 youtube --quality 6
+     ```
+   - Process smaller segments:
+     ```sh
+     python -m app.cli process video.mp4 youtube --segment-size 30
+     ```
+
+6. **Network Issues**
+   - Check internet connection
+   - Verify API key validity
+   - Test with local files:
+     ```sh
+     python -m app.cli process video.mp4 youtube --use-local-files
+     ```
+
+### Performance Optimization
+
+1. **Video Processing**
+   ```sh
+   # Use hardware acceleration
+   python -m app.cli process video.mp4 youtube --hwaccel
+
+   # Optimize for speed
+   python -m app.cli process video.mp4 youtube --fast
+
+   # Use multiple threads
+   python -m app.cli process video.mp4 youtube --threads 4
+   ```
+
+2. **Resource Management**
+   ```sh
+   # Set memory limit
+   python -m app.cli process video.mp4 youtube --memory-limit 4G
+
+   # Set CPU limit
+   python -m app.cli process video.mp4 youtube --cpu-limit 2
+
+   # Set temporary directory
+   python -m app.cli process video.mp4 youtube --temp-dir /tmp/video
+   ```
 
 ## API Endpoints
 
@@ -555,3 +684,117 @@ The `/web` endpoints provide a user-friendly web interface to interact with the 
 - Ensure that the API key is included in the request headers for endpoints that require it.
 - The `fade_effect` must be one of the allowed values: `fade`, `wipeleft`, `wiperight`, `wipeup`, `wipedown`, `slideleft`, `slideright`, `slideup`, `slidedown`, `circlecrop`, `rectcrop`, `distance`, `fadeblack`, `fadewhite`, `radial`, `smoothleft`, `smoothright`, `smoothup`, `smoothdown`, `circleopen`, `circleclose`, `vertopen`, `vertclose`, `horzopen`, `horzclose`, `dissolve`, `pixelize`, `diagtl`, `diagtr`, `diagbl`, `diagbr`, `hlslice`, `hrslice`, `vuslice`, `vdslice`, `hblur`, `fadegrays`, `wipetl`, `wipetr`, `wipebl`, `wipebr`, `squeezeh`, `squeezev`.
 - The `audiogram` option allows customization of the audiogram's size, gamma, color, and position.
+
+## Docker Configuration
+
+The project includes a `Dockerfile` and `docker-compose.yml` for containerized deployment:
+
+```yaml
+# docker-compose.yml
+version: '3.8'
+services:
+  web:
+    build: .
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./static:/app/static
+    environment:
+      - FLASK_APP=application.py
+      - FLASK_ENV=development
+```
+
+## Development Guidelines
+
+1. **Code Style and Structure**
+   - Follow PEP 8 guidelines strictly
+   - Use type hints for function parameters and return values
+   - Add comprehensive docstrings for all functions and classes
+   - Keep files under 400 lines; split into logical components if needed
+   - Use meaningful variable and function names
+   - Group related functionality in appropriate modules
+   - Keep the root directory clean; move utility files to appropriate folders
+
+2. **Testing**
+   - Write unit tests for all new features
+   - Run the full test suite before committing changes
+   - Ensure all tests pass in both Docker and local environments
+   - Include edge cases and error scenarios in tests
+   - Mock external services (Pixabay, etc.) in tests
+   - Cache test results in temp directory (7-day retention)
+   - Document test requirements and setup in test files
+
+3. **Dependencies**
+   - Keep `requirements.txt` up to date with specific versions
+   - Document any new dependencies in the README
+   - Use virtual environments for local development
+   - Pin all dependency versions to ensure reproducibility
+   - Regularly update dependencies for security patches
+   - Document any system-level dependencies (ffmpeg, etc.)
+
+4. **API Development**
+   - Follow RESTful API design principles
+   - Include proper error handling and status codes
+   - Document all API endpoints with examples
+   - Validate all input data
+   - Implement rate limiting where appropriate
+   - Use consistent response formats
+   - Include request/response examples in documentation
+
+5. **Security**
+   - Never commit sensitive data or API keys
+   - Use environment variables for configuration
+   - Implement proper authentication and authorization
+   - Validate all user inputs
+   - Sanitize file uploads
+   - Follow security best practices for file handling
+   - Regular security audits of dependencies
+
+6. **Performance**
+   - Optimize video processing operations
+   - Implement proper resource cleanup
+   - Use efficient data structures and algorithms
+   - Monitor memory usage in video processing
+   - Implement caching where appropriate
+   - Profile code for bottlenecks
+   - Document performance considerations
+
+7. **Documentation**
+   - Keep README.md up to date
+   - Document all configuration options
+   - Include setup instructions for different environments
+   - Provide examples for common use cases
+   - Document API endpoints comprehensively
+   - Include troubleshooting guides
+   - Keep changelog up to date
+
+8. **Version Control**
+   - Use meaningful commit messages
+   - Create feature branches for new development
+   - Review code before merging
+   - Keep commits focused and atomic
+   - Tag releases appropriately
+   - Document breaking changes
+   - Follow semantic versioning
+
+9. **Error Handling**
+   - Implement comprehensive error handling
+   - Log errors appropriately
+   - Provide meaningful error messages
+   - Handle edge cases gracefully
+   - Implement proper cleanup on errors
+   - Document error scenarios
+   - Include error recovery procedures
+
+10. **Monitoring and Logging**
+    - Implement proper logging throughout the application
+    - Use appropriate log levels
+    - Include request IDs for tracking
+    - Monitor application health
+    - Track performance metrics
+    - Implement proper error reporting
+    - Document logging configuration
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for more details.
