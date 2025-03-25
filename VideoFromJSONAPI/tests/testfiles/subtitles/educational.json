@@ -1,0 +1,37 @@
+[
+    {
+        "text": "Understanding Video Processing",
+        "start": 0.0,
+        "end": 4.0
+    },
+    {
+        "text": "Video processing involves several key steps:",
+        "start": 4.0,
+        "end": 7.0
+    },
+    {
+        "text": "1. Input validation and format checking",
+        "start": 7.0,
+        "end": 10.0
+    },
+    {
+        "text": "2. Resolution and aspect ratio adjustment",
+        "start": 10.0,
+        "end": 13.0
+    },
+    {
+        "text": "3. Encoding and compression",
+        "start": 13.0,
+        "end": 16.0
+    },
+    {
+        "text": "4. Quality optimization",
+        "start": 16.0,
+        "end": 19.0
+    },
+    {
+        "text": "Let's explore each step in detail...",
+        "start": 19.0,
+        "end": 22.0
+    }
+] 

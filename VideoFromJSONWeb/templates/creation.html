@@ -1,0 +1,281 @@
+{% extends "base.html" %}
+
+{% block title %}Create Video{% endblock %}
+
+{% block content %}
+<!-- Status Section -->
+<div id="video-status" style="display: none; text-align: center;">
+    <!-- Video ID will be dynamically inserted -->
+    <p id="video-id-text"></p>
+    <p id="status-text">Processing...</p>
+    <video id="video-player" controls autoplay style="display:none; width: 640px; height: 360px; margin: auto;">
+        <source id="video-source" src="" type="video/mp4">
+        Your browser does not support the video tag.
+    </video>
+</div>
+
+<h1>Create Video</h1>
+
+<!-- Move "Generate Random Video" Button Above the Form -->
+<div style="text-align: center; margin-top: 20px;">
+    <button id="generate-random-video" type="button" class="btn btn-secondary">Generate Random Video</button>
+</div>
+
+<form id="create-video-form" method="POST" action="{{ api_base_url }}/api/creation">
+    <!-- Pre-fill form fields with submitted values -->
+    <label for="api_key">API Key:</label>
+    <input type="text" id="api_key" name="api_key" value="{{ form_data.api_key }}"><br>
+    <small>Your API key for authentication.</small><br>
+
+    <label for="segments">Segments (JSON):</label>
+    <textarea id="segments" name="segments" rows="10">{{ form_data.segments | default('[]', true) }}</textarea><br>
+    <small>Segments in JSON format.</small><br>
+
+    <!-- Zoom and Pan -->
+    <label for="zoom_pan">Enable Zoom and Pan:</label>
+    <input type="checkbox" id="zoom_pan" name="zoom_pan" {% if form_data.zoom_pan %}checked{% endif %}><br>
+    <small>Enables zoom and pan effect on images.</small><br>
+
+    <!-- Fade Effect -->
+    <label for="fade_effect">Fade Effect:</label>
+    <select id="fade_effect" name="fade_effect">
+        {% for effect in allowed_fade_effects %}
+        <option value="{{ effect }}" {% if form_data.fade_effect==effect %}selected{% endif %}>{{ effect }}</option>
+        {% endfor %}
+    </select><br>
+    <small>Transition effect between segments.</small><br>
+
+    <!-- Audiogram Settings -->
+    <label for="audiogram">Audiogram Settings (JSON):</label>
+    <textarea id="audiogram" name="audiogram" rows="5"
+        cols="50">{{ form_data.audiogram | default('{}', true) }}</textarea><br>
+    <small>Specify audiogram visualization settings in JSON format.</small><br>
+
+    <!-- Watermark Settings -->
+    <label for="watermark">Watermark Settings (JSON):</label>
+    <textarea id="watermark" name="watermark" rows="5"
+        cols="50">{{ form_data.watermark | default('{}', true) }}</textarea><br>
+    <small>Provide watermark text and style in JSON format.</small><br>
+
+    <!-- Background Music -->
+    <label for="background_music">Background Music URL:</label>
+    <input type="text" id="background_music" name="background_music" value="{{ form_data.background_music }}"><br>
+    <small>URL of the background music to include.</small><br>
+
+    <!-- Resolution -->
+    <label for="resolution">Resolution:</label>
+    <select id="resolution" name="resolution">
+        <option value="1920x1080" {% if form_data.resolution=='1920x1080' %}selected{% endif %}>1920x1080 (Full HD)
+        </option>
+        <option value="1280x720" {% if form_data.resolution=='1280x720' %}selected{% endif %}>1280x720 (HD)</option>
+        <option value="1080x1920" {% if form_data.resolution=='1080x1920' %}selected{% endif %}>1080x1920 (Vertical
+            HD)</option>
+        <option value="1080x1080" {% if form_data.resolution=='1080x1080' %}selected{% endif %}>1080x1080 (Square)
+        </option>
+        <!-- Add more common resolutions as needed -->
+    </select><br>
+    <small>Select the video resolution.</small><br>
+
+    <!-- Thumbnail -->
+    <label for="thumbnail">Generate Thumbnail:</label>
+    <input type="checkbox" id="thumbnail" name="thumbnail" {% if form_data.thumbnail %}checked{% endif %}><br>
+    <small>Generate a thumbnail for the video.</small><br>
+
+    <!-- Audio Enhancement -->
+    <label for="audio_enhancement">Audio Enhancement Settings (JSON):</label>
+    <textarea id="audio_enhancement" name="audio_enhancement" rows="5"
+        cols="50">{{ form_data.audio_enhancement | default('{}', true) }}</textarea><br>
+    <small>Settings for noise reduction and equalization.</small><br>
+
+    <!-- Dynamic Text -->
+    <label for="dynamic_text">Dynamic Text Settings (JSON):</label>
+    <textarea id="dynamic_text" name="dynamic_text" rows="5"
+        cols="50">{{ form_data.dynamic_text | default('{}', true) }}</textarea><br>
+    <small>Configure dynamic text overlay in JSON format.</small><br>
+
+    <!-- Template -->
+    <label for="template">Template File:</label>
+    <input type="text" id="template" name="template" value="{{ form_data.template }}"><br>
+    <small>Specify a template file to use for the video.</small><br>
+
+    <!-- Social Preset -->
+    <label for="social_preset">Social Media Preset:</label>
+    <select id="social_preset" name="social_preset">
+        <option value="">None</option>
+        {% for preset in social_presets %}
+        <option value="{{ preset }}" {% if form_data.social_preset==preset %}selected{% endif %}>{{
+            preset.capitalize() }}</option>
+        {% endfor %}
+    </select><br>
+    <small>Apply social media presets for resolution and duration.</small><br>
+
+    <!-- Use Local Files -->
+    <label for="use_local_files">Use Local Files:</label>
+    <input type="checkbox" id="use_local_files" name="use_local_files" {% if form_data.use_local_files %}checked{% endif
+        %}><br>
+    <small>Use local files instead of downloading from URLs.</small><br>
+
+    <!-- Additional Form Fields -->
+    <label for="audio_filters">Audio Filters (JSON):</label>
+    <textarea id="audio_filters" name="audio_filters" rows="5"
+        cols="50">{{ form_data.audio_filters | default('{}', true) }}</textarea><br>
+    <small>Configure audio filters in JSON format.</small><br>
+
+    <label for="segment_audio_effects">Segment Audio Effects (JSON):</label>
+    <textarea id="segment_audio_effects" name="segment_audio_effects" rows="5"
+        cols="50">{{ form_data.segment_audio_effects | default('[]', true) }}</textarea><br>
+    <small>Define audio effects for each segment in JSON format.</small><br>
+
+    <label for="intro_music">Intro Music URL:</label>
+    <input type="text" id="intro_music" name="intro_music" value="{{ form_data.intro_music }}"><br>
+    <small>URL of the intro music to include.</small><br>
+
+    <label for="outro_music">Outro Music URL:</label>
+    <input type="text" id="outro_music" name="outro_music" value="{{ form_data.outro_music }}"><br>
+    <small>URL of the outro music to include.</small><br>
+
+    <!-- Add "Create Video" Submit Button Inside the Form -->
+    <div style="text-align: center; margin-top: 20px;">
+        <button type="submit" class="btn btn-primary">Create Video</button>
+    </div>
+</form>
+<p>This endpoint creates a video from the provided segments.</p>
+
+<h2>Example JSON</h2>
+<pre>
+{
+    "segments": [
+        {
+            "imageUrl": "https://picsum.photos/800/600?random=1",
+            "audioUrl": "https://downloads.tuxfamily.org/pdsounds/sounds/076No%20Title-.mp3",
+            "text": "Sample Text",
+            "filter": "grayscale",
+            "duration": 3
+        }
+    ],
+    "zoom_pan": true,
+    "fade_effect": "circleclose",
+    "audiogram": {},
+    "watermark": {},
+    "background_music": "https://example.com/background_music.mp3",
+    "resolution": "1920x1080",
+    "thumbnail": false,
+    "audio_enhancement": {},
+    "dynamic_text": {},
+    "template": "",
+    "social_preset": "",
+    "use_local_files": false,
+    "audio_filters": {},
+    "segment_audio_effects": []
+}
+</pre>
+
+<h2>Explanation</h2>
+<ul class="explanation-list">
+    <li><strong>segments</strong>: An array of segments, each containing:
+        <ul>
+            <li><strong>imageUrl</strong>: URL of the image.</li>
+            <li><strong>audioUrl</strong>: URL of the audio.</li>
+            <li><strong>volume</strong> (optional): Volume level of the audio (default is 1.0).</li>
+            <li><strong>text</strong> (optional): Text overlay on the image.</li>
+            <li><strong>filter</strong> (optional): Video filter to apply (e.g., "grayscale", "sepia").</li>
+        </ul>
+    </li>
+    <li><strong>zoom_pan</strong> (optional): Enable zoom and pan effect (default is false).</li>
+    <li><strong>fade_effect</strong> (optional): Transition effect between segments (default is "fade").</li>
+    <li><strong>audiogram</strong> (optional): Audiogram settings, including:
+        <ul>
+            <li><strong>size</strong>: Size of the audiogram (e.g., "640x480").</li>
+            <li><strong>gamma</strong>: Gamma correction level.</li>
+            <li><strong>color</strong>: Color of the audiogram.</li>
+            <li><strong>position</strong>: Position of the audiogram on the video.</li>
+        </ul>
+    </li>
+    <li><strong>watermark</strong> (optional): Watermark settings, including:
+        <ul>
+            <li><strong>text</strong>: Watermark text.</li>
+            <li><strong>position</strong>: Position of the watermark on the video.</li>
+            <li><strong>opacity</strong>: Opacity level of the watermark.</li>
+        </ul>
+    </li>
+    <li><strong>background_music</strong> (optional): URL of the background music.</li>
+    <li><strong>resolution</strong> (optional): Resolution of the video (default is "1920x1080").</li>
+    <li><strong>thumbnail</strong> (optional): Generate a thumbnail for the video (default is false).</li>
+    <li><strong>audio_enhancement</strong> (optional): Audio enhancement settings, including:
+        <ul>
+            <li><strong>noise_reduction</strong>: Noise reduction level.</li>
+            <li><strong>equalization</strong>: Equalization settings.</li>
+        </ul>
+    </li>
+    <li><strong>dynamic_text</strong> (optional): Dynamic text overlay settings, including:
+        <ul>
+            <li><strong>text</strong>: Text to display.</li>
+            <li><strong>position</strong>: Position of the text on the video.</li>
+            <li><strong>font_size</strong>: Font size of the text.</li>
+            <li><strong>color</strong>: Color of the text.</li>
+            <li><strong>start_time</strong>: Start time of the text display.</li>
+            <li><strong>end_time</strong>: End time of the text display.</li>
+        </ul>
+    </li>
+    <li><strong>template</strong> (optional): Template file to use for the video.</li>
+    <li><strong>social_preset</strong> (optional): Social media preset to apply (e.g., "tiktok").</li>
+    <li><strong>use_local_files</strong> (optional): Use local files instead of downloading (default is false).</li>
+</ul>
+
+<!-- Define server data for creation.js -->
+<script>
+    var _backgroundMusicFiles = {{ backgroundMusicFiles | default ([], true) | tojson }};
+    var _soundEffectFiles = {{ soundEffectFiles | default ([], true) | tojson }};
+    var _allowedFadeEffects = {{ allowedFadeEffects | default ([], true) | tojson }};
+    var _socialPresets = {{ socialPresets | default ([], true) | tojson }};
+
+    window.serverData = {
+        videoId: "{{ video_id | default('', true) }}",
+        backgroundMusicFiles: _backgroundMusicFiles,
+        soundEffectFiles: _soundEffectFiles,
+        allowedFadeEffects: _allowedFadeEffects,
+        socialPresets: _socialPresets,
+        apiBaseUrl: "{{ api_base_url | default('/api', true) }}"
+    };
+</script>
+
+<!-- Include creation.js -->
+<script src="{{ url_for('static', filename='js/creation.js') }}"></script>
+
+<style>
+    #create-video-form {
+        max-width: 600px;
+        margin: 0 auto;
+        padding: 20px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        background-color: #f9f9f9;
+    }
+
+    .form-group {
+        margin-bottom: 15px;
+    }
+
+    .btn-primary {
+        background-color: #007bff;
+        border: none;
+    }
+
+    #debugging-section {
+        background-color: #f1f1f1;
+        border-radius: 5px;
+    }
+
+    #debugging-section h2 {
+        margin-top: 0;
+    }
+
+    #debugging-section pre {
+        background-color: #e8e8e8;
+        padding: 10px;
+        border-radius: 4px;
+        overflow-x: auto;
+    }
+</style>
+
+{% endblock %}

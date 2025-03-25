@@ -1,0 +1,22 @@
+[
+    {
+        "text": "First subtitle",
+        "start": 0.0,
+        "end": 3.0
+    },
+    {
+        "text": "Overlapping subtitle",
+        "start": 2.0,
+        "end": 5.0
+    },
+    {
+        "text": "Another overlapping subtitle",
+        "start": 4.0,
+        "end": 7.0
+    },
+    {
+        "text": "Multiple overlapping subtitles",
+        "start": 6.0,
+        "end": 9.0
+    }
+] 

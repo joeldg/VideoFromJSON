@@ -1,0 +1,17 @@
+[
+    {
+        "text": "Welcome to our video!",
+        "start": 0.0,
+        "end": 3.0
+    },
+    {
+        "text": "Today we're going to learn about video processing",
+        "start": 3.0,
+        "end": 6.0
+    },
+    {
+        "text": "Let's get started!",
+        "start": 6.0,
+        "end": 9.0
+    }
+] 

@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block title %}Uploads{% endblock %}
+
+{% block content %}
+<h1>Uploads</h1>
+
+<!-- Upload Video Form -->
+<form action="/api/upload_video" method="post" enctype="multipart/form-data">
+    <h2>Upload Video</h2>
+    <label for="video_category">Category:</label>
+    <select id="video_category" name="category">
+        <option value="pre_roll">Pre Roll</option>
+        <option value="post_roll">Post Roll</option>
+        <option value="segment">Segment</option>
+    </select><br>
+    <label for="video_file">Choose a video:</label>
+    <input type="file" id="video_file" name="file"><br>
+    <label for="video_api_key">API Key:</label>
+    <input type="text" id="video_api_key" name="api_key"><br>
+    <button type="submit">Upload Video</button>
+</form>
+
+<!-- Upload Audio Form -->
+<form action="/api/upload_audio" method="post" enctype="multipart/form-data">
+    <h2>Upload Audio</h2>
+    <label for="audio_category">Category:</label>
+    <select id="audio_category" name="category">
+        <option value="main_audio">Main Audio</option>
+        <option value="background_music">Background Music</option>
+        <option value="sound_effects">Sound Effects</option>
+        <option value="intro">Intro</option>
+        <option value="outtro">Outtro</option>
+        <option value="segment">Segment</option>
+    </select><br>
+    <label for="audio_file">Choose an audio file:</label>
+    <input type="file" id="audio_file" name="file"><br>
+    <label for="audio_api_key">API Key:</label>
+    <input type="text" id="audio_api_key" name="api_key"><br>
+    <button type="submit">Upload Audio</button>
+</form>
+
+<!-- Upload Image Form -->
+<form action="/api/upload_image" method="post" enctype="multipart/form-data">
+    <h2>Upload Image</h2>
+    <label for="image_category">Category:</label>
+    <select id="image_category" name="category">
+        <option value="segment">Segment</option>
+        <option value="watermark">Watermark</option>
+        <option value="thumbnail">Thumbnail</option>
+    </select><br>
+    <label for="image_file">Choose an image:</label>
+    <input type="file" id="image_file" name="file"><br>
+    <label for="image_api_key">API Key:</label>
+    <input type="text" id="image_api_key" name="api_key"><br>
+    <button type="submit">Upload Image</button>
+</form>
+
+<p>This page allows you to upload videos, audios, and images to the specified categories.</p>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const forms = document.querySelectorAll('form[action^="/api/upload_"]');
+        
+        forms.forEach(function(form) {
+            form.addEventListener('submit', function(event) {
+                event.preventDefault();
+                const categorySelect = form.querySelector('select[name="category"]');
+                const category = categorySelect.value;
+                const baseAction = form.getAttribute('action').split('/<category>')[0];
+                form.setAttribute('action', `${baseAction}/${category}`);
+                form.submit();
+            });
+        });
+    });
+</script>
+{% endblock %}

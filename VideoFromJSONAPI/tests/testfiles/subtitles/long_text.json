@@ -1,0 +1,17 @@
+[
+    {
+        "text": "This is a very long subtitle text that should test how the video processor handles multiple lines and word wrapping. It contains a lot of text that should be displayed over a longer period to ensure readability.",
+        "start": 0.0,
+        "end": 8.0
+    },
+    {
+        "text": "Here's another long subtitle that includes technical terms and complex concepts that need to be displayed clearly: video processing, encoding, compression, aspect ratio, and other technical specifications that should be easy to read.",
+        "start": 8.0,
+        "end": 16.0
+    },
+    {
+        "text": "The final long subtitle demonstrates how the system handles multiple paragraphs of text with different formatting requirements, including numbers (123), special characters (!@#), and various punctuation marks that should all be rendered correctly.",
+        "start": 16.0,
+        "end": 24.0
+    }
+] 

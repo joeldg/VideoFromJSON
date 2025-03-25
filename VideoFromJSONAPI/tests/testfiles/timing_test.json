@@ -1,0 +1,29 @@
+{
+  "body": {
+    "segments": [
+      {
+        "imageUrl": "tests/testfiles/images/1.jpg",
+        "audioUrl": "tests/testfiles/audio/segment_1.mp3",
+        "volume": 1.0,
+        "duration": 5
+      },
+      {
+        "imageUrl": "tests/testfiles/images/2.jpg",
+        "audioUrl": "tests/testfiles/audio/segment_2.mp3",
+        "volume": 1.0,
+        "duration": 5
+      },
+      {
+        "imageUrl": "tests/testfiles/images/3.jpg",
+        "audioUrl": "tests/testfiles/audio/segment_3.mp3",
+        "volume": 1.0,
+        "duration": 5
+      }
+    ],
+    "background_music": "tests/testfiles/audio/background.mp3",
+    "background_volume": 0.3,
+    "fade_effect": "fade",
+    "fade_duration": 1.0,
+    "resolution": "1920x1080"
+  }
+}
